@@ -1,6 +1,5 @@
 [[run]]
-== Running your application with Maven
-
+== Running your Application with Maven
 The plugin includes a run goal which can be used to launch your application from the command line, as shown in the following example:
 
 [indent=0]
@@ -8,9 +7,11 @@ The plugin includes a run goal which can be used to launch your application from
 	$ mvn spring-boot:run
 ----
 
+Application arguments can be specified using the `arguments` parameter, see <<run-example-application-arguments,using application arguments>> for more details.
+
 By default the application is executed in a forked process and setting properties on the command-line will not affect the application.
 If you need to specify some JVM arguments (i.e. for debugging purposes), you can use the `jvmArguments` parameter, see <<run-example-debug,Debug the application>> for more details.
-There is also explicit support for <<run-example-system-properties,system properties>> and <<run-example-environment-variable,environment variables>>.
+There is also explicit support for <<run-example-system-properties,system properties>> and <<run-example-environment-variables,environment variables>>.
 
 As enabling a profile is quite common, there is dedicated `profiles` property that offers a shortcut for `-Dspring-boot.run.jvmArguments="-Dspring.profiles.active=dev"`, see <<run-example-active-profiles,Specify active profiles>>.
 
@@ -26,7 +27,7 @@ To enable it, just add the following dependency to your project:
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-devtools</artifactId>
-			<version>{version}</version>
+			<version>{gradle-project-version}</version>
 			<optional>true</optional>
 		</dependency>
 	</dependencies>
@@ -54,7 +55,7 @@ You can restore it at any time by configuring your project:
 		<plugin>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-maven-plugin</artifactId>
-			<version>{version}</version>
+			<version>{gradle-project-version}</version>
 			<configuration>
 				<addResources>true</addResources>
 			</configuration>
@@ -71,7 +72,7 @@ It is also a helpful way of allowing your front end developers to work without n
 NOTE: A side effect of using this feature is that filtering of resources at build time will not work.
 
 In order to be consistent with the `repackage` goal, the `run` goal builds the classpath in such a way that any dependency that is excluded in the plugin's configuration gets excluded from the classpath as well.
-For more details, see <<run-example-exclude-dependency,the dedicated example>>.
+For more details, see <<repackage-example-exclude-dependency,the dedicated example>>.
 
 Sometimes it is useful to include test dependencies when running the application.
 For example, if you want to run your application in a test mode that uses stub classes.
@@ -79,6 +80,8 @@ If you wish to do this, you can set the `useTestClasspath` parameter to true.
 Note that this is only applied when you run an application: the `repackage` goal will not add test dependencies to the resulting JAR/WAR.
 
 include::goals/run.adoc[leveloffset=+1]
+
+
 
 [[run-examples]]
 === Examples
@@ -99,7 +102,7 @@ The following configuration suspend the process until a debugger has joined on p
 				<plugin>
 					<groupId>org.springframework.boot</groupId>
 					<artifactId>spring-boot-maven-plugin</artifactId>
-					<version>{version}</version>
+					<version>{gradle-project-version}</version>
 					<configuration>
 						<jvmArguments>
 							-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=y,address=5005
@@ -136,7 +139,7 @@ The following example sets `property1` to `test` and `property2` to 42:
 				<plugin>
 					<groupId>org.springframework.boot</groupId>
 					<artifactId>spring-boot-maven-plugin</artifactId>
-					<version>{version}</version>
+					<version>{gradle-project-version}</version>
 					<configuration>
 						<systemPropertyVariables>
 							<property1>test</property1>
@@ -178,7 +181,7 @@ The following example sets the 'ENV1', 'ENV2', 'ENV3', 'ENV4' env variables:
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
-				<version>{version}</version>
+				<version>{gradle-project-version}</version>
 				<configuration>
 					<environmentVariables>
 						<ENV1>5000</ENV1>
@@ -203,6 +206,43 @@ Environment variables defined this way take precedence over existing values.
 
 
 
+[[run-example-application-arguments]]
+==== Using Application Arguments
+Application arguments can be specified using the `arguments` attribute.
+The following example sets two arguments: `property1` and `property2=42`:
+
+[source,xml,indent=0,subs="verbatim,attributes"]
+----
+<project>
+	<build>
+		<plugins>
+			<plugin>
+				<groupId>org.springframework.boot</groupId>
+				<artifactId>spring-boot-maven-plugin</artifactId>
+				<version>{gradle-project-version}</version>
+				<configuration>
+					<arguments>
+						<argument>property1</argument>
+						<argument>property2=${my.value}</argument>
+					</arguments>
+				</configuration>
+			</plugin>
+		</plugins>
+	</build>
+</project>
+----
+
+On the command-line, arguments are separated by a space the same way `jvmArguments` are.
+If an argument contains a space, make sure to quote it.
+In the following example, two arguments are available: `property1` and `property2=Hello World`:
+
+[indent=0]
+----
+	$ mvn spring-boot:run -Dspring-boot.run.arguments="property1 'property2=Hello World'"
+----
+
+
+
 [[run-example-active-profiles]]
 ==== Specify Active Profiles
 The active profiles to use for a particular application can be specified using the `profiles` argument.
@@ -217,7 +257,7 @@ The following configuration enables the `foo` and `bar` profiles:
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
-				<version>{version}</version>
+				<version>{gradle-project-version}</version>
 				<configuration>
 					<profiles>
 						<profile>foo</profile>

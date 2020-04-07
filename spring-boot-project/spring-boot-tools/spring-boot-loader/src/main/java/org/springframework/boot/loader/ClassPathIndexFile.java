@@ -29,9 +29,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
-import java.util.Set;
 import java.util.stream.Collectors;
+
+import org.springframework.util.Assert;
 
 /**
  * A class path index file that provides ordering information for JARs.
@@ -45,31 +45,25 @@ final class ClassPathIndexFile {
 
 	private final List<String> lines;
 
-	private final Set<String> folders;
-
 	private ClassPathIndexFile(File root, List<String> lines) {
 		this.root = root;
-		this.lines = lines;
-		this.folders = this.lines.stream().map(this::getFolder).filter(Objects::nonNull).collect(Collectors.toSet());
+		this.lines = lines.stream().map(this::extractName).collect(Collectors.toList());
 	}
 
-	private String getFolder(String name) {
-		int lastSlash = name.lastIndexOf("/");
-		return (lastSlash != -1) ? name.substring(0, lastSlash) : null;
+	private String extractName(String line) {
+		Assert.state(line.startsWith("- \"") && line.endsWith("\""), "Malformed classpath index line [" + line + "]");
+		return line.substring(3, line.length() - 1);
 	}
 
 	int size() {
 		return this.lines.size();
 	}
 
-	boolean containsFolder(String name) {
+	boolean containsEntry(String name) {
 		if (name == null || name.isEmpty()) {
 			return false;
 		}
-		if (name.endsWith("/")) {
-			return containsFolder(name.substring(0, name.length() - 1));
-		}
-		return this.folders.contains(name);
+		return this.lines.contains(name);
 	}
 
 	List<URL> getUrls() {

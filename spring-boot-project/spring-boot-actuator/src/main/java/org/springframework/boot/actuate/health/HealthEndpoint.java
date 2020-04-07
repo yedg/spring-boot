@@ -33,6 +33,7 @@ import org.springframework.boot.actuate.endpoint.http.ApiVersion;
  * @author Christian Dupuis
  * @author Andy Wilkinson
  * @author Stephane Nicoll
+ * @author Scott Frederick
  * @since 2.0.0
  */
 @Endpoint(id = "health")

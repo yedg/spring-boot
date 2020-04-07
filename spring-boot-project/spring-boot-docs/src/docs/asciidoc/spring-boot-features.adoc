@@ -193,6 +193,95 @@ See the {spring-boot-module-api}/builder/SpringApplicationBuilder.html[`SpringAp
 
 
 
+[[boot-features-application-availability-state]]
+=== Application Availability State
+When deployed on plaftorms, applications can provide information about their availability to the platform using infrastructure like https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/[Kubernetes Probes].
+Spring Boot manages this application state with the `ApplicationAvailabilityProvider` and makes it available to application components and the platform itself.
+
+
+
+[[boot-features-application-availability-liveness]]
+==== Liveness State
+The "Liveness" state of an application tells whether its internal state allows it to work correctly, or recover by itself if it's currently failing.
+An invalid "Liveness" state means that the application is in a broken state and cannot recover from it; the infrastructure should then restart the application to mitigate that problem.
+
+NOTE: In general, the "Liveness" state should not be based on external checks, such as <<production-ready-features.adoc#production-ready-health, Health checks>>.
+If it did, a failing external system (a database, a Web API, an external cache) would trigger massive restarts and cascading failures across the platform.
+
+The internal state of Spring Boot applications is mostly represented by the Spring application context.
+If the application context has started successfully, Spring Boot assumes that the application is in a valid state.
+An application is considered live as soon as the context has been refreshed, see <<boot-features-application-events-and-listeners, Spring Boot application lifecycle and related Application Events>>.
+
+
+
+[[boot-features-application-availability-readiness]]
+==== Readiness State
+The "Readiness" state of an application tells whether the application is ready to handle traffic.
+A failing "Readiness" state tells the platform that it should not route traffic to the application for now.
+This typically happens during startup, while `CommandLineRunner` and `ApplicationRunner` components are being processed, or at any time if the application decides that it's too busy for additional traffic.
+
+An application is considered ready as soon as application and command-line runners have been called, see <<boot-features-application-events-and-listeners, Spring Boot application lifecycle and related Application Events>>.
+
+TIP: Tasks expected to run during startup should be executed by `CommandLineRunner` and `ApplicationRunner` components instead of using Spring component lifecycle callbacks such as `@PostConstruct`.
+
+
+
+[[boot-features-managing-application-availability]]
+==== Managing the Application Availability State
+Application components can retrieve the current availability state at any time, by injecting the `ApplicationAvailabilityProvider` and calling methods on it.
+More often, applications will want to listen to state updates or update the state of the application.
+
+For example, we can export the "Readiness" state of the application to a file so that a Kubernetes "exec Probe" can look at this file:
+
+[source,java,indent=0]
+----
+    @Component
+	public class ReadinessStateExporter implements ApplicationListener<LivenessStateChangedEvent> {
+
+		@Override
+	    public void onApplicationEvent(LivenessStateChangedEvent event) {
+			switch (event.getReadinessState().getStatus()) {
+		    case READY:
+			    // create file /tmp/healthy
+			break;
+		    case UNREADY:
+		    	// remove file /tmp/healthy
+			break;
+		    }
+	    }
+
+	}
+----
+
+We can also update the state of the application, when the application breaks and cannot recover:
+
+[source,java,indent=0]
+----
+    @Component
+	public class LocalCacheVerifier {
+
+	    private final ApplicationEventPublisher eventPublisher;
+
+	    public LocalCacheVerifier(ApplicationEventPublisher eventPublisher) {
+            this.eventPublisher = eventPublisher;
+	    }
+
+	    public void checkLocalCache() {
+	    	try {
+	    		//...
+	    	}
+	    	catch (CacheCompletelyBrokenException ex) {
+                this.eventPublisher.publishEvent(LivenessStateChangedEvent.broken(ex));
+	    	}
+	    }
+
+	}
+----
+
+Spring Boot provides <<production-ready-features.adoc#production-ready-kubernetes-probes,Kubernetes HTTP probes for "Liveness" and "Readiness" with Actuator Health Endpoints>>.
+You can get more guidance about <<deployment.adoc#cloud-deployment-kubernetes,deploying Spring Boot applications on Kubernetes in the dedicated section>>.
+
+
 [[boot-features-application-events-and-listeners]]
 === Application Events and Listeners
 In addition to the usual Spring Framework events, such as {spring-framework-api}/context/event/ContextRefreshedEvent.html[`ContextRefreshedEvent`], a `SpringApplication` sends some additional application events.
@@ -218,8 +307,9 @@ Application events are sent in the following order, as your application runs:
 . An `ApplicationContextInitializedEvent` is sent when the `ApplicationContext` is prepared and ApplicationContextInitializers have been called but before any bean definitions are loaded.
 . An `ApplicationPreparedEvent` is sent just before the refresh is started but after bean definitions have been loaded.
 . An `ApplicationStartedEvent` is sent after the context has been refreshed but before any application and command-line runners have been called.
+. An `LivenessStateChangedEvent` is sent right after to indicate that the application is considered as live.
 . An `ApplicationReadyEvent` is sent after any application and command-line runners have been called.
-  It indicates that the application is ready to service requests.
+. An `ReadinessStateChangedEvent` is sent right after to indicate that the application is ready to service requests.
 . An `ApplicationFailedEvent` is sent if there is an exception on startup.
 
 The above list only includes ``SpringApplicationEvent``s that are tied to a `SpringApplication`.
@@ -396,6 +486,18 @@ On your application classpath (for example, inside your jar) you can have an `ap
 When running in a new environment, an `application.properties` file can be provided outside of your jar that overrides the `name`.
 For one-off testing, you can launch with a specific command line switch (for example, `java -jar app.jar --name="Spring"`).
 
+Spring Boot also supports wildcard locations when loading configuration files.
+By default, a wildcard location of `config/*/` outside of your jar is supported.
+Wildcard locations are also supported when specifying `spring.config.additional-location` and `spring.config.location`.
+
+Wildcard locations are particularly useful in an environment such as Kubernetes when there are multiple sources of config properties.
+For example, if you have some Redis configuration and some MySQL configuration, you might want to keep those two pieces of configuration separate, while requiring that both those are present in an `application.properties` that the app can bind to.
+This might result in two separate `application.properties` files mounted at different locations such as `/config/redis/application.properties` and `/config/mysql/application.properties`.
+In such a case, having a wildcard location of `config/*/`, will result in both files being processed.
+
+NOTE: Locations with wildcards are not processed in a deterministic order and files that match the wildcard cannot be used to override keys in the other.
+
+
 [[boot-features-external-config-application-json]]
 [TIP]
 ====
@@ -492,10 +594,11 @@ If `spring.config.location` contains directories (as opposed to files), they sho
 Files specified in `spring.config.location` are used as-is, with no support for profile-specific variants, and are overridden by any profile-specific properties.
 
 Config locations are searched in reverse order.
-By default, the configured locations are `classpath:/,classpath:/config/,file:./,file:./config/`.
+By default, the configured locations are `classpath:/,classpath:/config/,file:./,file:./config/*/,file:./config/`.
 The resulting search order is the following:
 
 . `file:./config/`
+. `file:./config/*/`
 . `file:./`
 . `classpath:/config/`
 . `classpath:/`
@@ -513,6 +616,7 @@ For example, if additional locations of `classpath:/custom-config/,file:./custom
 . `file:./custom-config/`
 . `classpath:custom-config/`
 . `file:./config/`
+. `file:./config/*/`
 . `file:./`
 . `classpath:/config/`
 . `classpath:/`
@@ -855,7 +959,7 @@ The example in the previous section can be rewritten in an immutable fashion as 
 
 	import org.springframework.boot.context.properties.ConfigurationProperties;
 	import org.springframework.boot.context.properties.ConstructorBinding;
-	import org.springframework.boot.context.properties.DefaultValue;
+	import org.springframework.boot.context.properties.bind.DefaultValue;
 
 	@ConstructorBinding
 	@ConfigurationProperties("acme")
@@ -1275,7 +1379,7 @@ These are:
 
 The default unit is milliseconds and can be overridden using `@DurationUnit` as illustrated in the sample above.
 
-TIP: If you are upgrading from a previous version that is simply using `Long` to express the duration, make sure to define the unit (using `@DurationUnit`) if it isn't milliseconds alongside the switch to `Duration`.
+TIP: If you are upgrading a `Long` property, make sure to define the unit (using `@DurationUnit`) if it isn't milliseconds.
 Doing so gives a transparent upgrade path while supporting a much richer format.
 
 
@@ -1309,7 +1413,7 @@ These are:
 
 The default unit is bytes and can be overridden using `@DataSizeUnit` as illustrated in the sample above.
 
-TIP: If you are upgrading from a previous version that is simply using `Long` to express the size, make sure to define the unit (using `@DataSizeUnit`) if it isn't bytes alongsidethe switch to `DataSize`.
+TIP: If you are upgrading a `Long` property, make sure to define the unit (using `@DataSizeUnit`) if it isn't bytes.
 Doing so gives a transparent upgrade path while supporting a much richer format.
 
 
@@ -2200,7 +2304,7 @@ Nowadays, Content Negotiation is much more reliable.
 There are other ways to deal with HTTP clients that don't consistently send proper "Accept" request headers.
 Instead of using suffix matching, we can use a query parameter to ensure that requests like `"GET /projects/spring-boot?format=json"` will be mapped to `@GetMapping("/projects/spring-boot")`:
 
-[source,properties,indent=0,subs="verbatim,quotes,attributes",configprops]
+[source,properties,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	spring.mvc.contentnegotiation.favor-parameter=true
 
@@ -2211,9 +2315,10 @@ Instead of using suffix matching, we can use a query parameter to ensure that re
 	spring.mvc.contentnegotiation.media-types.markdown=text/markdown
 ----
 
+Suffix pattern matching is deprecated and will be removed in a future release.
 If you understand the caveats and would still like your application to use suffix pattern matching, the following configuration is required:
 
-[source,properties,indent=0,subs="verbatim,quotes,attributes",configprops]
+[source,properties,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	spring.mvc.contentnegotiation.favor-path-extension=true
 	spring.mvc.pathmatch.use-suffix-pattern=true
@@ -2221,7 +2326,7 @@ If you understand the caveats and would still like your application to use suffi
 
 Alternatively, rather than open all suffix patterns, it's more secure to just support registered suffix patterns:
 
-[source,properties,indent=0,subs="verbatim,quotes,attributes",configprops]
+[source,properties,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	spring.mvc.contentnegotiation.favor-path-extension=true
 	spring.mvc.pathmatch.use-registered-suffix-pattern=true
@@ -2946,6 +3051,26 @@ You can learn more about the resource configuration on the client side in the <<
 
 
 
+[[boot-features-graceful-shutdown]]
+== Graceful shutdown
+Graceful shutdown is supported with all four embedded web servers (Jetty, Reactor Netty, Tomcat, and Undertow) and with both reactive and Servlet-based web applications.
+When enabled, shutdown of the application will include a grace period of configurable duration.
+During this grace period, existing requests will be allowed to complete but no new requests will be permitted.
+The exact way in which new requests are not permitted varies depending on the web server that is being used.
+Jetty, Reactor Netty, and Tomcat will stop accepting requests at the network layer.
+Undertow will accept requests but respond immediately with a service unavailable (503) response.
+
+Graceful shutdown occurs as one of the first steps during application close processing and before any beans have been destroyed.
+This ensures that the beans are available for use by any processing that occurs while in-flight requests are being allowed to complete.
+To enable graceful shutdown, configure the configprop:server.shutdown.grace-period[] property, as shown in the following example:
+
+[source,properties,indent=0,configprops]
+----
+server.shutdown.grace-period=30s
+----
+
+
+
 [[boot-features-rsocket]]
 == RSocket
 https://rsocket.io[RSocket] is a binary protocol for use on byte stream transports.
@@ -3249,7 +3374,7 @@ Alternatively, you can define your own `OpaqueTokenIntrospector` bean for servle
 ==== Authorization Server
 Currently, Spring Security does not provide support for implementing an OAuth 2.0 Authorization Server.
 However, this functionality is available from the {spring-security-oauth2}[Spring Security OAuth] project, which will eventually be superseded by Spring Security completely.
-Until then, you can use the `spring-security-oauth2-autoconfigure` module to easily set up an OAuth 2.0 authorization server; see its https://docs.spring.io/spring-security-oauth2-boot[documentation] for instructions.
+Until then, you can use the `spring-security-oauth2-autoconfigure` module to easily set up an OAuth 2.0 authorization server; see its https://docs.spring.io/spring-security-oauth2-boot/[documentation] for instructions.
 
 
 [[boot-features-security-saml]]
@@ -3760,6 +3885,139 @@ You can also create your own `org.jooq.Configuration` `@Bean` if you want to tak
 
 
 
+[[boot-features-r2dbc]]
+=== Using R2DBC
+The Reactive Relational Database Connectivity (https://r2dbc.io[R2DBC]) project brings reactive programming APIs to relational databases.
+R2DBC's `io.r2dbc.spi.Connection` provides a standard method of working with non-blocking database connections.
+Connections are provided via a `ConnectionFactory`, similar to a `DataSource` with jdbc.
+
+`ConnectionFactory` configuration is controlled by external configuration properties in `+spring.r2dbc.*+`.
+For example, you might declare the following section in `application.properties`:
+
+[source,properties,indent=0]
+----
+	spring.r2dbc.url=r2dbc:postgresql://localhost/test
+	spring.r2dbc.username=dbuser
+	spring.r2dbc.password=dbpass
+----
+
+TIP: You do not need to specify a driver class name, since Spring Boot obtains the driver from R2DBC's Connection Factory discovery.
+
+NOTE: At least the url should be provided.
+Information specified in the URL takes precedence over individual properties, i.e. `name`, `username`, `password` and pooling options.
+
+TIP: The "`How-to`" section includes a <<howto.adoc#howto-initialize-a-database-using-r2dbc, section on how to initialize a database>>.
+
+To customize the connections created by a `ConnectionFactory`, i.e., set specific parameters that you do not want (or cannot) configure in your central database configuration, you can use a `ConnectionFactoryOptionsBuilderCustomizer` `@Bean`.
+The following example shows how to manually override the database port while the rest of the options is taken from the application configuration:
+
+[source,java,indent=0]
+----
+	@Bean
+	public ConnectionFactoryOptionsBuilderCustomizer connectionFactoryPortCustomizer() {
+		return (builder) -> builder.option(PORT, 5432);
+	}
+----
+
+The following examples shows how to set some PostgreSQL connection options:
+
+[source,java,indent=0]
+----
+	@Bean
+	public ConnectionFactoryOptionsBuilderCustomizer postgresCustomizer() {
+		Map<String, String> options = new HashMap<>();
+		options.put("lock_timeout", "30s");
+		options.put("statement_timeout", "60s");
+		return (builder) -> builder.option(OPTIONS, options);
+	}
+----
+
+When a `ConnectionFactory` bean is available, the regular jdbc `DataSource` auto-configuration backs off.
+
+
+
+[[boot-features-r2dbc-embedded-database]]
+==== Embedded Database Support
+Similarly to <<boot-features-embedded-database-support,the JDBC support>>, Spring Boot can automatically configure an embedded database for reactive usage.
+You need not provide any connection URLs.
+You need only include a build dependency to the embedded database that you want to use, as shown in the following example:
+
+[source,xml,indent=0]
+----
+	<dependency>
+		<groupId>io.r2dbc</groupId>
+		<artifactId>r2dbc-h2</artifactId>
+		<scope>runtime</scope>
+	</dependency>
+----
+
+[NOTE]
+====
+If you are using this feature in your tests, you may notice that the same database is reused by your whole test suite regardless of the number of application contexts that you use.
+If you want to make sure that each context has a separate embedded database, you should set `spring.r2dbc.generate-unique-name` to `true`.
+====
+
+
+
+[[boot-features-r2dbc-using-database-client]]
+==== Using DatabaseClient
+Spring Data's `DatabaseClient` class is auto-configured, and you can `@Autowire` it directly into your own beans, as shown in the following example:
+
+[source,java,indent=0]
+----
+	import org.springframework.beans.factory.annotation.Autowired;
+	import org.springframework.data.r2dbc.function.DatabaseClient;
+	import org.springframework.stereotype.Component;
+
+	@Component
+	public class MyBean {
+
+		private final DatabaseClient databaseClient;
+
+		@Autowired
+		public MyBean(DatabaseClient databaseClient) {
+			this.databaseClient = databaseClient;
+		}
+
+		// ...
+
+	}
+----
+
+
+
+[[boot-features-spring-data-r2dbc-repositories]]
+==== Spring Data R2DBC Repositories
+https://spring.io/projects/spring-data-r2dbc[Spring Data R2DBC] repositories are interfaces that you can define to access data.
+Queries are created automatically from your method names.
+For example, a `CityRepository` interface might declare a `findAllByState(String state)` method to find all the cities in a given state.
+
+For more complex queries, you can annotate your method with Spring Data's {spring-data-r2dbc-api}/repository/query/Query.html[`Query`] annotation.
+
+Spring Data repositories usually extend from the {spring-data-commons-api}/repository/Repository.html[`Repository`] or {spring-data-commons-api}/repository/CrudRepository.html[`CrudRepository`] interfaces.
+If you use auto-configuration, repositories are searched from the package containing your main configuration class (the one annotated with `@EnableAutoConfiguration` or `@SpringBootApplication`) down.
+
+The following example shows a typical Spring Data repository interface definition:
+
+[source,java,indent=0]
+----
+	package com.example.myapp.domain;
+
+	import org.springframework.data.domain.*;
+	import org.springframework.data.repository.*;
+	import reactor.core.publisher.Mono;
+
+	public interface CityRepository extends Repository<City, Long> {
+
+		Mono<City> findByNameAndStateAllIgnoringCase(String name, String state);
+
+	}
+----
+
+TIP: We have barely scratched the surface of Spring Data R2DBC. For complete details, see the {spring-data-r2dbc-docs}[Spring Data R2DBC reference documentation].
+
+
+
 [[boot-features-nosql]]
 == Working with NoSQL Technologies
 Spring Data provides additional projects that help you access a variety of NoSQL technologies, including:
@@ -3833,29 +4091,29 @@ Spring Boot offers several conveniences for working with MongoDB, including the 
 
 [[boot-features-connecting-to-mongodb]]
 ==== Connecting to a MongoDB Database
-To access Mongo databases, you can inject an auto-configured `org.springframework.data.mongodb.MongoDbFactory`.
+To access MongoDB databases, you can inject an auto-configured `org.springframework.data.mongodb.MongoDatabaseFactory`.
 By default, the instance tries to connect to a MongoDB server at `mongodb://localhost/test`.
 The following example shows how to connect to a MongoDB database:
 
 [source,java,indent=0]
 ----
-	import org.springframework.data.mongodb.MongoDbFactory;
-	import com.mongodb.DB;
+	import org.springframework.data.mongodb.MongoDatabaseFactory;
+	import com.mongodb.client.MongoDatabase;
 
 	@Component
 	public class MyBean {
 
-		private final MongoDbFactory mongo;
+		private final MongoDatabaseFactory mongo;
 
 		@Autowired
-		public MyBean(MongoDbFactory mongo) {
+		public MyBean(MongoDatabaseFactory mongo) {
 			this.mongo = mongo;
 		}
 
 		// ...
 
 		public void example() {
-			DB db = mongo.getDb();
+			MongoDatabase db = mongo.getMongoDatabase();
 			// ...
 		}
 
@@ -3869,26 +4127,25 @@ You can set the configprop:spring.data.mongodb.uri[] property to change the URL 
 	spring.data.mongodb.uri=mongodb://user:secret@mongo1.example.com:12345,mongo2.example.com:23456/test
 ----
 
-Alternatively, as long as you use Mongo 2.x, you can specify a `host`/`port`.
+Alternatively, you can specify connection details using discrete properties.
 For example, you might declare the following settings in your `application.properties`:
 
 [source,properties,indent=0,configprops]
 ----
-	spring.data.mongodb.host=mongoserver
+	spring.data.mongodb.host=mongoserver.example.com
 	spring.data.mongodb.port=27017
+	spring.data.mongodb.database=test
+	spring.data.mongodb.username=user
+	spring.data.mongodb.password=secret
 ----
 
-If you have defined your own `MongoClient`, it will be used to auto-configure a suitable `MongoDbFactory`.
-Both `com.mongodb.MongoClient` and `com.mongodb.client.MongoClient` are supported.
-
-NOTE: If you use the Mongo 3.0 Java driver, `spring.data.mongodb.host` and `spring.data.mongodb.port` are not supported.
-In such cases, `spring.data.mongodb.uri` should be used to provide all of the configuration.
+If you have defined your own `MongoClient`, it will be used to auto-configure a suitable `MongoDatabaseFactory`.
 
 TIP: If `spring.data.mongodb.port` is not specified, the default of `27017` is used.
 You could delete this line from the example shown earlier.
 
-TIP: If you do not use Spring Data Mongo, you can inject `com.mongodb.MongoClient` beans instead of using `MongoDbFactory`.
-If you want to take complete control of establishing the MongoDB connection, you can also declare your own `MongoDbFactory` or `MongoClient` bean.
+TIP: If you do not use Spring Data MongoDB, you can inject a `MongoClient` bean instead of using `MongoDatabaseFactory`.
+If you want to take complete control of establishing the MongoDB connection, you can also declare your own `MongoDatabaseFactory` or `MongoClient` bean.
 
 NOTE: If you are using the reactive driver, Netty is required for SSL.
 The auto-configuration configures this factory automatically if Netty is available and the factory to use hasn't been customized already.
@@ -3902,7 +4159,6 @@ As with `JdbcTemplate`, Spring Boot auto-configures a bean for you to inject the
 
 [source,java,indent=0]
 ----
-	import org.springframework.beans.factory.annotation.Autowired;
 	import org.springframework.data.mongodb.core.MongoTemplate;
 	import org.springframework.stereotype.Component;
 
@@ -3911,7 +4167,6 @@ As with `JdbcTemplate`, Spring Boot auto-configures a bean for you to inject the
 
 		private final MongoTemplate mongoTemplate;
 
-		@Autowired
 		public MyBean(MongoTemplate mongoTemplate) {
 			this.mongoTemplate = mongoTemplate;
 		}
@@ -3932,7 +4187,7 @@ Spring Data includes repository support for MongoDB.
 As with the JPA repositories discussed earlier, the basic principle is that queries are constructed automatically, based on method names.
 
 In fact, both Spring Data JPA and Spring Data MongoDB share the same common infrastructure.
-You could take the JPA example from earlier and, assuming that `City` is now a Mongo data class rather than a JPA `@Entity`, it works in the same way, as shown in the following example:
+You could take the JPA example from earlier and, assuming that `City` is now a MongoDB data class rather than a JPA `@Entity`, it works in the same way, as shown in the following example:
 
 [source,java,indent=0]
 ----
@@ -4252,17 +4507,33 @@ There is a `spring-boot-starter-data-cassandra` "`Starter`" for collecting the d
 
 [[boot-features-connecting-to-cassandra]]
 ==== Connecting to Cassandra
-You can inject an auto-configured `CassandraTemplate` or a Cassandra `Session` instance as you would with any other Spring Bean.
+You can inject an auto-configured `CassandraTemplate` or a Cassandra `CqlSession` instance as you would with any other Spring Bean.
 The `spring.data.cassandra.*` properties can be used to customize the connection.
-Generally, you provide `keyspace-name` and `contact-points` properties, as shown in the following example:
+Generally, you provide `keyspace-name` and `contact-points` as well the local datacenter name, as shown in the following example:
+
+[source,properties,indent=0,configprops]
+----
+	spring.data.cassandra.keyspace-name=mykeyspace
+	spring.data.cassandra.contact-points=cassandrahost1:9042,cassandrahost2:9042
+	spring.data.cassandra.local-datacenter=datacenter1
+----
+
+If the port is the same for all your contact points you can use a shortcut and only specify the host names, as shown in the following example:
 
 [source,properties,indent=0,configprops]
 ----
 	spring.data.cassandra.keyspace-name=mykeyspace
 	spring.data.cassandra.contact-points=cassandrahost1,cassandrahost2
+	spring.data.cassandra.local-datacenter=datacenter1
 ----
 
-You can also register an arbitrary number of beans that implement `ClusterBuilderCustomizer` for more advanced customizations.
+TIP: Those two examples are identical as the port default to `9042`.
+If you need to configure the port, use `spring.data.cassandra.port`.
+
+You can also register an arbitrary number of beans that implement `DriverConfigLoaderBuilderCustomizer` for more advanced driver customizations.
+The `CqlSession` can be customized with a bean of type `CqlSessionBuilderCustomizer`.
+
+NOTE: If you're using `CqlSessionBuilder` to create multiple `CqlSession` beans, keep in mind the builder is mutable so make sure to inject a fresh copy for each session.
 
 The following code listing shows how to inject a Cassandra bean:
 
@@ -4271,9 +4542,8 @@ The following code listing shows how to inject a Cassandra bean:
 	@Component
 	public class MyBean {
 
-		private CassandraTemplate template;
+		private final CassandraTemplate template;
 
-		@Autowired
 		public MyBean(CassandraTemplate template) {
 			this.template = template;
 		}
@@ -4306,21 +4576,18 @@ There are `spring-boot-starter-data-couchbase` and `spring-boot-starter-data-cou
 
 [[boot-features-connecting-to-couchbase]]
 ==== Connecting to Couchbase
-You can get a `Bucket` and `Cluster` by adding the Couchbase SDK and some configuration.
+You can get a `Cluster` by adding the Couchbase SDK and some configuration.
 The `spring.couchbase.*` properties can be used to customize the connection.
-Generally, you provide the bootstrap hosts, bucket name, and password, as shown in the following example:
+Generally, you provide the https://github.com/couchbaselabs/sdk-rfcs/blob/master/rfc/0011-connection-string.md[connection string], username, and password, as shown in the following example:
 
 [source,properties,indent=0,configprops]
 ----
-	spring.couchbase.bootstrap-hosts=my-host-1,192.168.1.123
-	spring.couchbase.bucket.name=my-bucket
-	spring.couchbase.bucket.password=secret
+	spring.couchbase.connection-string=couchbase://192.168.1.123
+	spring.couchbase.username=user
+	spring.couchbase.password=secret
 ----
 
-TIP: You need to provide _at least_ the bootstrap host(s), in which case the bucket name is `default` and the password is an empty String.
-Alternatively, you can define your own `org.springframework.data.couchbase.config.CouchbaseConfigurer` `@Bean` to take control over the whole configuration.
-
-It is also possible to customize some of the `CouchbaseEnvironment` settings.
+It is also possible to customize some of the `ClusterEnvironment` settings.
 For instance, the following configuration changes the timeout to use to open a new `Bucket` and enables SSL support:
 
 [source,properties,indent=0,configprops]
@@ -4330,18 +4597,25 @@ For instance, the following configuration changes the timeout to use to open a n
 	spring.couchbase.env.ssl.key-store-password=secret
 ----
 
-Check the `spring.couchbase.env.*` properties for more details.
+TIP: Check the `spring.couchbase.env.*` properties for more details.
+To take more control, one or more `ClusterEnvironmentBuilderCustomizer` beans can be used.
 
 
 
 [[boot-features-spring-data-couchbase-repositories]]
 ==== Spring Data Couchbase Repositories
 Spring Data includes repository support for Couchbase.
-For complete details of Spring Data Couchbase, refer to the https://docs.spring.io/spring-data/couchbase/docs/current/reference/html/[reference documentation].
+For complete details of Spring Data Couchbase, refer to the {spring-data-couchbase-docs}[reference documentation].
 
-You can inject an auto-configured `CouchbaseTemplate` instance as you would with any other Spring Bean, provided a _default_ `CouchbaseConfigurer` is available (which happens when you enable Couchbase support, as explained earlier).
+You can inject an auto-configured `CouchbaseTemplate` instance as you would with any other Spring Bean, provided a `CouchbaseClientFactory` bean is available.
+This happens when a `Cluster` is availabe, as described above, and a bucket name as been specified:
 
-The following examples shows how to inject a Couchbase bean:
+[source,properties,indent=0,configprops]
+----
+	spring.data.couchbase.bucket-name=my-bucket
+----
+
+The following examples shows how to inject a `CouchbaseTemplate` bean:
 
 [source,java,indent=0]
 ----
@@ -4362,9 +4636,9 @@ The following examples shows how to inject a Couchbase bean:
 
 There are a few beans that you can define in your own configuration to override those provided by the auto-configuration:
 
-* A `CouchbaseTemplate` `@Bean` with a name of `couchbaseTemplate`.
-* An `IndexManager` `@Bean` with a name of `couchbaseIndexManager`.
+* A `CouchbaseMappingContext` `@Bean` with a name of `couchbaseMappingContext`.
 * A `CustomConversions` `@Bean` with a name of `couchbaseCustomConversions`.
+* A `CouchbaseTemplate` `@Bean` with a name of `couchbaseTemplate`.
 
 To avoid hard-coding those names in your own config, you can reuse `BeanNames` provided by Spring Data Couchbase.
 For instance, you can customize the converters to use, as follows:
@@ -4384,14 +4658,12 @@ For instance, you can customize the converters to use, as follows:
 	}
 ----
 
-TIP: If you want to fully bypass the auto-configuration for Spring Data Couchbase, provide your own implementation of `org.springframework.data.couchbase.config.AbstractCouchbaseDataConfiguration`.
-
 
 
 [[boot-features-ldap]]
 === LDAP
 https://en.wikipedia.org/wiki/Lightweight_Directory_Access_Protocol[LDAP] (Lightweight Directory Access Protocol) is an open, vendor-neutral, industry standard application protocol for accessing and maintaining distributed directory information services over an IP network.
-Spring Boot offers auto-configuration for any compliant LDAP server as well as support for the embedded in-memory LDAP server from https://www.ldap.com/unboundid-ldap-sdk-for-java[UnboundID].
+Spring Boot offers auto-configuration for any compliant LDAP server as well as support for the embedded in-memory LDAP server from https://ldap.com/unboundid-ldap-sdk-for-java/[UnboundID].
 
 LDAP abstractions are provided by https://github.com/spring-projects/spring-data-ldap[Spring Data LDAP].
 There is a `spring-boot-starter-data-ldap` "`Starter`" for collecting the dependencies in a convenient way.
@@ -4447,7 +4719,7 @@ You can also inject an auto-configured `LdapTemplate` instance as you would with
 
 [[boot-features-ldap-embedded]]
 ==== Embedded In-memory LDAP Server
-For testing purposes, Spring Boot supports auto-configuration of an in-memory LDAP server from https://www.ldap.com/unboundid-ldap-sdk-for-java[UnboundID].
+For testing purposes, Spring Boot supports auto-configuration of an in-memory LDAP server from https://ldap.com/unboundid-ldap-sdk-for-java/[UnboundID].
 To configure the server, add a dependency to `com.unboundid:unboundid-ldapsdk` and declare a configprop:spring.ldap.embedded.base-dn[] property, as follows:
 
 [source,properties,indent=0,configprops]
@@ -4743,8 +5015,17 @@ For instance, the following configuration creates `cache1` and `cache2` caches w
 NOTE: By default, a key prefix is added so that, if two separate caches use the same key, Redis does not have overlapping keys and cannot return invalid values.
 We strongly recommend keeping this setting enabled if you create your own `RedisCacheManager`.
 
-TIP: You can take full control of the configuration by adding a `RedisCacheConfiguration` `@Bean` of your own.
-This can be useful if you're looking for customizing the serialization strategy.
+TIP: You can take full control of the default configuration by adding a `RedisCacheConfiguration` `@Bean` of your own.
+This can be useful if you're looking for customizing the default serialization strategy.
+
+If you need more control over the configuration, consider registering a `RedisCacheManagerBuilderCustomizer` bean.
+The following example shows a customizer that configures a specific time to live for `cache1` and `cache2`:
+
+[source,java,indent=0]
+----
+include::{code-examples}/cache/RedisCacheManagerCustomizationExample.java[tag=configuration]
+----
+
 
 
 
@@ -4861,7 +5142,7 @@ By default, ActiveMQ creates a destination if it does not yet exist so that dest
 
 [[boot-features-artemis]]
 ==== Artemis Support
-Spring Boot can auto-configure a `ConnectionFactory` when it detects that https://activemq.apache.org/artemis/[Artemis] is available on the classpath.
+Spring Boot can auto-configure a `ConnectionFactory` when it detects that https://activemq.apache.org/components/artemis/[Artemis] is available on the classpath.
 If the broker is present, an embedded broker is automatically started and configured (unless the mode property has been explicitly set).
 The supported modes are `embedded` (to make explicit that an embedded broker is required and that an error should occur if the broker is not available on the classpath) and `native` (to connect to a broker using the `netty` transport protocol).
 When the latter is configured, Spring Boot configures a `ConnectionFactory` that connects to a broker running on the local machine with the default settings.
@@ -5048,6 +5329,9 @@ Alternatively, you could configure the same connection using the `addresses` att
 ----
 	spring.rabbitmq.addresses=amqp://admin:secret@localhost
 ----
+
+NOTE: When specifying addresses that way, the `host` and `port` properties are ignored.
+If the address uses the `amqps` protocol, SSL support is enabled automatically.
 
 If a `ConnectionNameStrategy` bean exists in the context, it will be automatically used to name connections created by the auto-configured `ConnectionFactory`.
 See {spring-boot-autoconfigure-module-code}/amqp/RabbitProperties.java[`RabbitProperties`] for more of the supported options.
@@ -5776,6 +6060,21 @@ If `spring-integration-jdbc` is available, the default database schema can be cr
 	spring.integration.jdbc.initialize-schema=always
 ----
 
+If `spring-integration-rsocket` is available, developers can configure an RSocket server using `"spring.rsocket.server.*"` properties and let it use `IntegrationRSocketEndpoint` or `RSocketOutboundGateway` components to handle incoming RSocket messages.
+This infrastructure can handle Spring Integration RSocket channel adapters and `@MessageMapping` handlers (given `"spring.integration.rsocket.server.message-mapping-enabled"` is configured).
+
+Spring Boot can also auto-configure an `ClientRSocketConnector` using configuration properties:
+
+[source,properties,indent=0,configprops]
+----
+	# Connecting to a RSocket server over TCP
+	spring.integration.rsocket.client.host=example.org
+	spring.integration.rsocket.client.port=9898
+
+	# Connecting to a RSocket Server over WebSocket
+	spring.integration.rsocket.client.uri=ws://example.org
+----
+
 See the {spring-boot-autoconfigure-module-code}/integration/IntegrationAutoConfiguration.java[`IntegrationAutoConfiguration`] and {spring-boot-autoconfigure-module-code}/integration/IntegrationProperties.java[`IntegrationProperties`] classes for more details.
 
 By default, if a Micrometer `meterRegistry` bean is present, Spring Integration metrics will be managed by Micrometer.
@@ -5819,7 +6118,6 @@ For instance, it is possible to customize the name of the table for the JDBC sto
 
 For setting the timeout of the session you can use the configprop:spring.session.timeout[] property.
 If that property is not set, the auto-configuration falls back to the value of configprop:server.servlet.session.timeout[].
-
 
 
 [[boot-features-jmx]]
@@ -5869,11 +6167,11 @@ If you have migrated your tests to JUnit 5, you should exclude JUnit 4 support, 
 === Test Scope Dependencies
 The `spring-boot-starter-test` "`Starter`" (in the `test` `scope`) contains the following provided libraries:
 
-* https://junit.org/junit5[JUnit 5] (including the vintage engine for backward compatibility with JUnit 4): The de-facto standard for unit testing Java applications.
+* https://junit.org/junit5/[JUnit 5] (including the vintage engine for backward compatibility with JUnit 4): The de-facto standard for unit testing Java applications.
 * {spring-framework-docs}testing.html#integration-testing[Spring Test] & Spring Boot Test: Utilities and integration test support for Spring Boot applications.
-* https://joel-costigliola.github.io/assertj/[AssertJ]: A fluent assertion library.
+* https://assertj.github.io/doc/[AssertJ]: A fluent assertion library.
 * https://github.com/hamcrest/JavaHamcrest[Hamcrest]: A library of matcher objects (also known as constraints or predicates).
-* https://mockito.github.io[Mockito]: A Java mocking framework.
+* https://site.mockito.org/[Mockito]: A Java mocking framework.
 * https://github.com/skyscreamer/JSONassert[JSONassert]: An assertion library for JSON.
 * https://github.com/jayway/JsonPath[JsonPath]: XPath for JSON.
 
@@ -6905,7 +7203,7 @@ NOTE: Make sure to not use the regular `@Import` annotation to import auto-confi
 
 [[boot-features-testing-spring-boot-applications-testing-user-configuration]]
 ==== User Configuration and Slicing
-If you <<using-boot-structuring-your-code, structure your code>> in a sensible way, your `@SpringBootApplication` class is <<boot-features-testing-spring-boot-applications-detecting-config, used by default>> as the configuration of your tests.
+If you <<using-spring-boot.adoc#using-boot-structuring-your-code, structure your code>> in a sensible way, your `@SpringBootApplication` class is <<boot-features-testing-spring-boot-applications-detecting-config, used by default>> as the configuration of your tests.
 
 It then becomes important not to litter the application's main class with configuration settings that are specific to a particular area of its functionality.
 
@@ -7223,7 +7521,7 @@ These annotations include:
 [[boot-features-class-conditions]]
 ==== Class Conditions
 The `@ConditionalOnClass` and `@ConditionalOnMissingClass` annotations let `@Configuration` classes be included based on the presence or absence of specific classes.
-Due to the fact that annotation metadata is parsed by using https://asm.ow2.org/[ASM], you can use the `value` attribute to refer to the real class, even though that class might not actually appear on the running application classpath.
+Due to the fact that annotation metadata is parsed by using https://asm.ow2.io/[ASM], you can use the `value` attribute to refer to the real class, even though that class might not actually appear on the running application classpath.
 You can also use the `name` attribute if you prefer to specify the class name by using a `String` value.
 
 This mechanism does not apply the same way to `@Bean` methods where typically the return type is the target of the condition: before the condition on the method applies, the JVM will have loaded the class and potentially processed method references which will fail if the class is not present.
@@ -7664,7 +7962,7 @@ If you need the `Mockk` equivalent of the Mockito specific <<boot-features-testi
 [[boot-features-kotlin-resources-further-reading]]
 ==== Further reading
 * {kotlin-docs}[Kotlin language reference]
-* https://slack.kotlinlang.org/[Kotlin Slack] (with a dedicated #spring channel)
+* https://kotlinlang.slack.com/[Kotlin Slack] (with a dedicated #spring channel)
 * https://stackoverflow.com/questions/tagged/spring+kotlin[Stackoverflow with `spring` and `kotlin` tags]
 * https://try.kotlinlang.org/[Try Kotlin in your browser]
 * https://blog.jetbrains.com/kotlin/[Kotlin blog]
@@ -7685,6 +7983,124 @@ If you need the `Mockk` equivalent of the Mockito specific <<boot-features-testi
 * https://github.com/spring-petclinic/spring-petclinic-kotlin[spring-petclinic-kotlin]: Kotlin version of the Spring PetClinic Sample Application
 * https://github.com/sdeleuze/spring-kotlin-deepdive[spring-kotlin-deepdive]: a step by step migration for Boot 1.0 + Java to Boot 2.0 + Kotlin
 * https://github.com/sdeleuze/spring-boot-coroutines-demo[spring-boot-coroutines-demo]: Coroutines sample project
+
+
+
+[[building-docker-images]]
+== Building Docker Images
+Spring Boot applications can be containerized by packaging them into Docker images.
+A typical Spring Boot fat jar can be converted into a Docker image by adding just a few lines to a Dockerfile that can be used to build the image.
+However, there are various downsides to copying and running the fat jar as is in the docker image.
+There’s always a certain amount of overhead when running a fat jar without unpacking it, and in a containerized environment this can be noticeable.
+The other issue is that putting your application's code and all its dependencies in one layer in the Docker image is sub-optimal.
+Since you probably recompile your code more often than you upgrade the version of Spring Boot you use, it’s often better to separate things a bit more.
+If you put jar files in the layer before your application classes, Docker often only needs to change the very bottom layer and can pick others up from its cache.
+
+=== Layering Docker Images
+To make it easier to create optimized Docker images that can be built with a dockerfile, Spring Boot supports adding a layer index file to the jar.
+The `layers.idx` file lists all the files in the jar along with the layer that the file should go in.
+The list of files in the index is ordered based on the order in which the layers should be added.
+Out-of-the-box, the following layers are supported:
+
+* `dependencies` (for regular released dependencies)
+* `spring-boot-loader` (for everything under `org/springframework/boot/loader`)
+* `snapshot-dependencies` (for snapshot dependencies)
+* `application` (for application classes and resources)
+
+The following shows an example of a `layers.idx` file:
+
+[source]
+----
+dependencies BOOT-INF/lib/library1.jar
+dependencies BOOT-INF/lib/library2.jar
+spring-boot-loader org/springframework/boot/loader/JarLauncher.class
+spring-boot-loader org/springframework/boot/loader/jar/JarEntry.class
+...
+snapshot-dependencies BOOT-INF/lib/library3-SNAPSHOT.jar
+application META-INF/MANIFEST.MF
+application BOOT-INF/classes/a/b/C.class
+----
+
+This layering is designed to separate code based on how likely it is to change between application builds.
+Library code is less likely to change between builds, so it is placed in its own layers to allow tooling to re-use the layers from cache.
+Application code is more likely to change between builds so it is isolated in a separate layer.
+
+For Maven, refer to the {spring-boot-maven-plugin-docs}/#repackage-layered-jars[packaging layered jars section] for more details on adding a layer index to the jar.
+For Gradle, refer to the {spring-boot-gradle-plugin-docs}/#packaging-layered-jars[packaging layered jars section] of the Gradle plugin documentation.
+
+
+
+=== Writing the Dockerfile
+When you create a jar containing the layers index file, the `spring-boot-jarmode-layertools` jar will be added as a dependency to your jar.
+With this jar on the classpath, you can launch your application in a special mode which allows the bootstrap code to run something entirely different from your application, for example, something that extracts the layers.
+Here’s how you can launch your jar with a `layertools` jar mode:
+
+[source]
+----
+$ java -Djarmode=layertools -jar my-app.jar
+----
+
+This will provide the following output:
+
+[source]
+----
+Usage:
+  java -Djarmode=layertools -jar my-app.jar
+
+Available commands:
+  list     List layers from the jar that can be extracted
+  extract  Extracts layers from the jar for image creation
+  help     Help about any command
+----
+
+The `extract` command can be used to easily split the application into layers to be added to the dockerfile.
+Here's an example of a Dockerfile using `jarmode`.
+
+[source]
+----
+FROM adoptopenjdk:11-jre-hotspot as builder
+WORKDIR application
+ARG JAR_FILE=target/*.jar
+COPY ${JAR_FILE} application.jar
+RUN java -Djarmode=layertools -jar application.jar extract
+
+FROM adoptopenjdk:11-jre-hotspot
+WORKDIR application
+COPY --from=builder application/dependencies/ ./
+COPY --from=builder application/snapshot-dependencies/ ./
+COPY --from=builder application/resources/ ./
+COPY --from=builder application/application/ ./
+ENTRYPOINT ["java", "org.springframework.boot.loader.JarLauncher"]
+----
+
+Assuming the above `Dockerfile` is in the current directory, your docker image can be built with `docker build .`, or optionally specifying the path to your application jar, as shown in the following example:
+
+[indent=0]
+----
+	docker build --build-arg JAR_FILE=path/to/myapp.jar .
+----
+
+This is a multi-stage dockerfile.
+The builder stage extracts the folders that are needed later.
+Each of the `COPY` commands relates to the layers extracted by the jarmode.
+
+Of course, a Dockerfile can be written without using the jarmode.
+You can use some combination of `unzip` and `mv` to move things to the right layer but jarmode simplifies that.
+
+
+
+=== Buildpacks
+Dockerfiles are just one way to build docker images.
+Another way to build docker images is directly from your Maven or Gradle plugin, using buildpacks.
+If you’ve ever used an application platform such as Cloud Foundry or Heroku then you’ve probably used a buildpack.
+Buildpacks are the part of the platform that takes your application and converts it into something that the platform can actually run.
+For example, Cloud Foundry’s Java buildpack will notice that you’re pushing a `.jar` file and automatically add a relevant JRE.
+
+With Cloud Native Buildpacks, you can create Docker compatible images that you can run anywhere.
+Spring Boot includes buildpack support directly for both Maven and Gradle.
+This means you can just type a single command and quickly get a sensible image into your locally running Docker daemon.
+
+Refer to the individual plugin documentation on how to use buildpacks with {spring-boot-maven-plugin-docs}/#build-image[Maven] and {spring-boot-gradle-plugin-docs}/#packaging-oci-images[Gradle].
 
 
 

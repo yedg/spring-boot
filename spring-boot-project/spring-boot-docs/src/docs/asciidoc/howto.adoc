@@ -156,7 +156,7 @@ NOTE: Only production configuration is filtered that way (in other words, no fil
 TIP: If you enable the `addResources` flag, the `spring-boot:run` goal can add `src/main/resources` directly to the classpath (for hot reloading purposes).
 Doing so circumvents the resource filtering and this feature.
 Instead, you can use the `exec:java` goal or customize the plugin's configuration.
-See the {spring-boot-maven-plugin-docs}/usage.html[plugin usage page] for more details.
+See the {spring-boot-maven-plugin-docs}#getting-started[plugin usage page] for more details.
 
 If you do not use the starter parent, you need to include the following  element inside the `<build/>` element of your `pom.xml`:
 
@@ -448,15 +448,12 @@ The following Gradle example shows how to exclude Netty and include Undertow for
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	configurations {
-		// exclude Reactor Netty
-		compile.exclude module: 'spring-boot-starter-reactor-netty'
-	}
-
 	dependencies {
-		compile 'org.springframework.boot:spring-boot-starter-webflux'
+		implementation('org.springframework.boot:spring-boot-starter-webflux') {
+		    exclude group: 'org.springframework.boot', module: 'spring-boot-starter-reactor-netty'
+		}
 		// Use Undertow instead
-		compile 'org.springframework.boot:spring-boot-starter-undertow'
+		implementation 'org.springframework.boot:spring-boot-starter-undertow'
 		// ...
 	}
 ----
@@ -864,8 +861,8 @@ You can add an `org.apache.catalina.connector.Connector` to the `TomcatServletWe
 			return connector;
 		}
 		catch (IOException ex) {
-			throw new IllegalStateException("can't access keystore: [" + "keystore"
-					+ "] or truststore: [" + "keystore" + "]", ex);
+			throw new IllegalStateException("can't access keystore: [" + keystore
+					+ "] or truststore: [" + truststore + "]", ex);
 		}
 	}
 ----
@@ -1435,8 +1432,8 @@ And the following example shows one way to set up the starters in Gradle:
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
 	dependencies {
-		compile 'org.springframework.boot:spring-boot-starter-web'
-		compile 'org.springframework.boot:spring-boot-starter-log4j2'
+		implementation 'org.springframework.boot:spring-boot-starter-web'
+		implementation 'org.springframework.boot:spring-boot-starter-log4j2'
 	}
 
 	configurations {
@@ -1940,7 +1937,7 @@ It is a Hibernate feature (and has nothing to do with Spring).
 
 
 [[howto-initialize-a-database-using-spring-jdbc]]
-=== Initialize a Database
+=== Initialize a Database using basic SQL scripts
 Spring Boot can automatically create the schema (DDL scripts) of your `DataSource` and initialize it (DML scripts).
 It loads SQL from the standard root classpath locations: `schema.sql` and `data.sql`, respectively.
 In addition, Spring Boot processes the `schema-$\{platform}.sql` and `data-$\{platform}.sql` files (if present), where `platform` is the value of `spring.datasource.platform`.
@@ -1965,6 +1962,24 @@ You can tune that behavior by setting `spring.datasource.continue-on-error`.
 
 NOTE: In a JPA-based app, you can choose to let Hibernate create the schema or use `schema.sql`, but you cannot do both.
 Make sure to disable `spring.jpa.hibernate.ddl-auto` if you use `schema.sql`.
+
+
+
+[[howto-initialize-a-database-using-r2dbc]]
+=== Initialize a Database Using R2DBC
+If you are using R2DBC, the regular `DataSource` auto-configuration backs off so none of the options described above can be used.
+
+If you are using Spring Data R2DBC, you can initialize the database on startup using simple SQL scripts as shown in the following example:
+
+[source,java,indent=0]
+----
+include::{code-examples}/r2dbc/R2dbcDatabaseInitializationExample.java[tag=configuration]
+----
+
+Alternatively, you can configure either <<howto-execute-flyway-database-migrations-on-startup,Flyway>> or <<howto-execute-liquibase-database-migrations-on-startup,Liquibase>> to configure a `DataSource` for you for the duration of the migration.
+Both these libraries offer properties to set the `url`, `username` and `password` of the database to migrate.
+
+NOTE: When choosing this option, `org.springframework:spring-jdbc` is still a required dependency.
 
 
 
@@ -2036,7 +2051,7 @@ If you like to use a different `DataSource`, you can create one and mark its `@B
 If you do so and want two data sources, remember to create another one and mark it as `@Primary`.
 Alternatively, you can use Flyway's native `DataSource` by setting `spring.flyway.[url,user,password]` in external properties.
 Setting either `spring.flyway.url` or `spring.flyway.user` is sufficient to cause Flyway to use its own `DataSource`.
-If any of the three properties has not be set, the value of its equivalent `spring.datasource` property will be used.
+If any of the three properties has not been set, the value of its equivalent `spring.datasource` property will be used.
 
 You can also use Flyway to provide data for specific scenarios.
 For example, you can place test-specific migrations in `src/test/resources` and they are run only when your application starts for testing.
@@ -2204,10 +2219,12 @@ See also the section on "`<<spring-boot-features.adoc#boot-features-error-handli
 === Sanitize sensible values
 Information returned by the `env` and `configprops` endpoints can be somewhat sensitive so keys matching a certain pattern are sanitized by default (i.e. their values are replaced by `+******+`).
 
-Spring Boot uses sensible defaults for such keys: for instance, any key ending with the word "password", "secret", "key" or "token" is sanitized.
-It is also possible to use a regular expression instead, such as `+*credentials.*+` to sanitize any key that holds the word `credentials` as part of the key.
-
 The patterns to use can be customized using the `management.endpoint.env.keys-to-sanitize` and `management.endpoint.configprops.keys-to-sanitize` respectively.
+
+Spring Boot uses sensible defaults for such keys: any key ending with the word "password", "secret", "key", "token", "vcap_services", "sun.java.command", "uri", "uris", "address" or "addresses" is sanitized.
+Additionally, any key that holds the word `credentials` as part of the key is sanitized (configured as a regular expression, i.e. `+.*credentials.*+`).
+
+If any of the keys to sanitize are URI format (i.e. `<scheme>://<username>:<password>@<host>:<port>/`), only the password part is sanitized.
 
 
 
@@ -2227,7 +2244,7 @@ If you define a `@Configuration` with a `WebSecurityConfigurerAdapter` in your a
 [[howto-change-the-user-details-service-and-add-user-accounts]]
 === Change the UserDetailsService and Add User Accounts
 If you provide a `@Bean` of type `AuthenticationManager`, `AuthenticationProvider`, or `UserDetailsService`, the default `@Bean` for `InMemoryUserDetailsManager` is not created.
-This means you have the full feature set of Spring Security available (such as {spring-security-docs}#jc-authentication[various authentication options]).
+This means you have the full feature set of Spring Security available (such as {spring-security-docs}#servlet-authentication[various authentication options]).
 
 The easiest way to add user accounts is to provide your own `UserDetailsService` bean.
 
@@ -2323,7 +2340,7 @@ See {spring-boot-autoconfigure-module-code}/groovy/template/GroovyTemplateAutoCo
 [[howto-reload-fast-restart]]
 === Fast Application Restarts
 The `spring-boot-devtools` module includes support for automatic application restarts.
-While not as fast as technologies such as https://jrebel.com/software/jrebel/[JRebel] it is usually significantly faster than a "`cold start`".
+While not as fast as technologies such as https://www.jrebel.com/products/jrebel[JRebel] it is usually significantly faster than a "`cold start`".
 You should probably give it a try before investigating some of the more complex reload options discussed later in this document.
 
 For more details, see the <<using-spring-boot.adoc#using-boot-devtools>> section.
@@ -2372,7 +2389,7 @@ To generate build information with Maven, add an execution for the `build-info` 
 	</build>
 ----
 
-TIP: See the {spring-boot-maven-plugin-docs}/#build-info[Spring Boot Maven Plugin documentation] for more details.
+TIP: See the {spring-boot-maven-plugin-docs}#goals-build-info[Spring Boot Maven Plugin documentation] for more details.
 
 The following example does the same with Gradle:
 
@@ -2411,7 +2428,7 @@ Gradle users can achieve the same result by using the https://plugins.gradle.org
 [source,groovy,indent=0]
 ----
 	plugins {
-		id "com.gorylenko.gradle-git-properties" version "1.5.1"
+		id "com.gorylenko.gradle-git-properties" version "2.2.2"
 	}
 ----
 
@@ -2423,22 +2440,13 @@ Using this format lets the time be parsed into a `Date` and its format, when ser
 
 [[howto-customize-dependency-versions]]
 === Customize Dependency Versions
-If you use a Maven build that inherits directly or indirectly from `spring-boot-dependencies` (for instance, `spring-boot-starter-parent`) but you want to override a specific third-party dependency, you can add appropriate `<properties>` elements.
-Browse the {spring-boot-code}/spring-boot-project/spring-boot-dependencies/pom.xml[`spring-boot-dependencies`] POM for a complete list of properties.
-For example, to pick a different `slf4j` version, you would add the following property:
-
-[source,xml,indent=0,subs="verbatim,quotes,attributes"]
-----
-	<properties>
-		<slf4j.version>1.7.5<slf4j.version>
-	</properties>
-----
-
-NOTE: Doing so only works if your Maven project inherits (directly or indirectly) from `spring-boot-dependencies`.
-If you have added `spring-boot-dependencies` in your own `dependencyManagement` section with `<scope>import</scope>`, you have to redefine the artifact yourself instead of overriding the property.
+The `spring-boot-dependencies` POM manages the versions of common dependencies.
+The Spring Boot plugins for Maven and Gradle allow these managed dependency versions to be customized using build properties.
 
 WARNING: Each Spring Boot release is designed and tested against this specific set of third-party dependencies.
 Overriding versions may cause compatibility issues.
+
+To override dependency versions with Maven, see {spring-boot-maven-plugin-docs}/#using[this section] of the Maven plugin's documentation.
 
 To override dependency versions in Gradle, see {spring-boot-gradle-plugin-docs}/#managing-dependencies-customizing[this section] of the Gradle plugin's documentation.
 
@@ -2484,7 +2492,7 @@ However, you must additionally add an `<executions>` section, as follows:
 	</build>
 ----
 
-See the {spring-boot-maven-plugin-docs}/usage.html[plugin documentation] for full usage details.
+See the {spring-boot-maven-plugin-docs}#repackage[plugin documentation] for full usage details.
 
 
 
@@ -2558,7 +2566,7 @@ For example, to indicate that JRuby should be flagged for unpacking by using the
 [[howto-create-a-nonexecutable-jar]]
 === Create a Non-executable JAR with Exclusions
 Often, if you have an executable and a non-executable jar as two separate build products, the executable version has additional configuration files that are not needed in a library jar.
-For example, the `application.yml` configuration file might by excluded from the non-executable JAR.
+For example, the `application.yml` configuration file might be excluded from the non-executable JAR.
 
 In Maven, the executable jar must be the main artifact and you can add a classified jar for the library, as follows:
 
@@ -2598,7 +2606,7 @@ In Maven, the executable jar must be the main artifact and you can add a classif
 === Remote Debug a Spring Boot Application Started with Maven
 To attach a remote debugger to a Spring Boot application that was started with Maven, you can use the `jvmArguments` property of the {spring-boot-maven-plugin-docs}[maven plugin].
 
-See {spring-boot-maven-plugin-docs}/examples/run-debug.html[this example] for more details.
+See {spring-boot-maven-plugin-docs}#run-example-debug[this example] for more details.
 
 
 
@@ -2898,12 +2906,11 @@ The following example shows how to do so in Gradle:
 
 [source,groovy,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	configurations {
-		compile.exclude module: "lettuce"
-	}
-
 	dependencies {
-		compile("redis.clients:jedis")
+		implementation('org.springframework.boot:spring-boot-starter-data-redis') {
+		    exclude group: 'io.lettuce', module: 'lettuce-core'
+		}
+		implementation 'redis.clients:jedis'
 		// ...
 	}
 ----

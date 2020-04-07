@@ -16,23 +16,21 @@
 
 package org.springframework.boot.autoconfigure.data.cassandra;
 
-import java.net.InetSocketAddress;
 import java.time.Duration;
 
 import com.datastax.oss.driver.api.core.CqlSession;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import com.datastax.oss.driver.api.core.CqlSessionBuilder;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.CassandraContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import org.springframework.beans.factory.support.BeanDefinitionRegistry;
 import org.springframework.boot.autoconfigure.AutoConfigurationPackages;
+import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.cassandra.CassandraAutoConfiguration;
-import org.springframework.boot.autoconfigure.cassandra.CqlSessionBuilderCustomizer;
 import org.springframework.boot.autoconfigure.data.cassandra.city.City;
-import org.springframework.boot.test.util.TestPropertyValues;
-import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.cassandra.config.SchemaAction;
@@ -53,64 +51,39 @@ class CassandraDataAutoConfigurationIntegrationTests {
 	static final CassandraContainer<?> cassandra = new CassandraContainer<>().withStartupAttempts(5)
 			.withStartupTimeout(Duration.ofMinutes(10));
 
-	private AnnotationConfigApplicationContext context;
-
-	@BeforeEach
-	void setUp() {
-		this.context = new AnnotationConfigApplicationContext();
-		this.context.register(TestConfiguration.class);
-		TestPropertyValues
-				.of("spring.data.cassandra.contact-points:localhost:" + cassandra.getFirstMappedPort(),
-						"spring.data.cassandra.read-timeout=24000", "spring.data.cassandra.connect-timeout=10000")
-				.applyTo(this.context.getEnvironment());
-	}
-
-	@AfterEach
-	void close() {
-		if (this.context != null) {
-			this.context.close();
-		}
-	}
+	private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
+			.withConfiguration(
+					AutoConfigurations.of(CassandraAutoConfiguration.class, CassandraDataAutoConfiguration.class))
+			.withPropertyValues("spring.data.cassandra.contact-points:localhost:" + cassandra.getFirstMappedPort(),
+					"spring.data.cassandra.local-datacenter=datacenter1", "spring.data.cassandra.read-timeout=20s",
+					"spring.data.cassandra.connect-timeout=10s")
+			.withInitializer((context) -> AutoConfigurationPackages.register((BeanDefinitionRegistry) context,
+					City.class.getPackage().getName()));
 
 	@Test
 	void hasDefaultSchemaActionSet() {
-		String cityPackage = City.class.getPackage().getName();
-		AutoConfigurationPackages.register(this.context, cityPackage);
-		this.context.register(CassandraAutoConfiguration.class, CassandraDataAutoConfiguration.class);
-		this.context.refresh();
-		assertThat(this.context.getBean(SessionFactoryFactoryBean.class)).hasFieldOrPropertyWithValue("schemaAction",
-				SchemaAction.NONE);
+		this.contextRunner.run((context) -> assertThat(context.getBean(SessionFactoryFactoryBean.class))
+				.hasFieldOrPropertyWithValue("schemaAction", SchemaAction.NONE));
 	}
 
 	@Test
 	void hasRecreateSchemaActionSet() {
-		createTestKeyspaceIfNotExists();
-		String cityPackage = City.class.getPackage().getName();
-		AutoConfigurationPackages.register(this.context, cityPackage);
-		TestPropertyValues.of("spring.data.cassandra.schemaAction=recreate_drop_unused",
-				"spring.data.cassandra.keyspaceName=boot_test").applyTo(this.context);
-		this.context.register(CassandraAutoConfiguration.class, CassandraDataAutoConfiguration.class);
-		this.context.refresh();
-		assertThat(this.context.getBean(SessionFactoryFactoryBean.class)).hasFieldOrPropertyWithValue("schemaAction",
-				SchemaAction.RECREATE_DROP_UNUSED);
+		this.contextRunner.withUserConfiguration(KeyspaceTestConfiguration.class)
+				.withPropertyValues("spring.data.cassandra.schemaAction=recreate_drop_unused")
+				.run((context) -> assertThat(context.getBean(SessionFactoryFactoryBean.class))
+						.hasFieldOrPropertyWithValue("schemaAction", SchemaAction.RECREATE_DROP_UNUSED));
 	}
 
-	private void createTestKeyspaceIfNotExists() {
-		try (CqlSession session = CqlSession.builder()
-				.addContactPoint(
-						new InetSocketAddress(cassandra.getContainerIpAddress(), cassandra.getFirstMappedPort()))
-				.withLocalDatacenter("datacenter1").build()) {
-			session.execute("CREATE KEYSPACE IF NOT EXISTS boot_test"
-					+ "  WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };");
-		}
-	}
-
-	@Configuration
-	static class TestConfiguration {
+	@Configuration(proxyBeanMethods = false)
+	static class KeyspaceTestConfiguration {
 
 		@Bean
-		CqlSessionBuilderCustomizer sessionCustomizer() {
-			return (builder) -> builder.withLocalDatacenter("datacenter1");
+		CqlSession cqlSession(CqlSessionBuilder cqlSessionBuilder) {
+			try (CqlSession session = cqlSessionBuilder.build()) {
+				session.execute("CREATE KEYSPACE IF NOT EXISTS boot_test"
+						+ "  WITH REPLICATION = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 };");
+			}
+			return cqlSessionBuilder.withKeyspace("boot_test").build();
 		}
 
 	}

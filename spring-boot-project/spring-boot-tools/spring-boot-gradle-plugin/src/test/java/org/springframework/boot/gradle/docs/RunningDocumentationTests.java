@@ -20,7 +20,7 @@ import java.io.File;
 import java.io.IOException;
 
 import org.junit.jupiter.api.TestTemplate;
-import org.junit.jupiter.api.condition.DisabledOnJre;
+import org.junit.jupiter.api.condition.DisabledForJreRange;
 import org.junit.jupiter.api.condition.JRE;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -41,12 +41,10 @@ class RunningDocumentationTests {
 	GradleBuild gradleBuild;
 
 	@TestTemplate
-	@DisabledOnJre(JRE.JAVA_13)
+	@DisabledForJreRange(min = JRE.JAVA_13)
 	void bootRunMain() throws IOException {
-		// Testing of convention mappings is flakey between 5.2 and 6.0 inclusive
-		// https://github.com/gradle/gradle/issues/11323
-		assertThat(this.gradleBuild.gradleVersion("6.1-rc-2").script("src/docs/gradle/running/boot-run-main")
-				.build("configuredMainClass").getOutput()).contains("com.example.ExampleApplication");
+		assertThat(this.gradleBuild.script("src/docs/gradle/running/boot-run-main").build("configuredMainClass")
+				.getOutput()).contains("com.example.ExampleApplication");
 	}
 
 	@TestTemplate

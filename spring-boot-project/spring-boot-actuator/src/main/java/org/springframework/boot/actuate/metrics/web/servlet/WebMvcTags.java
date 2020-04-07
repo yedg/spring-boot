@@ -112,7 +112,7 @@ public final class WebMvcTags {
 		if (request != null) {
 			String pattern = getMatchingPattern(request);
 			if (pattern != null) {
-				if (ignoreTrailingSlash) {
+				if (ignoreTrailingSlash && pattern.length() > 1) {
 					pattern = TRAILING_SLASH_PATTERN.matcher(pattern).replaceAll("");
 				}
 				return Tag.of("uri", pattern);
@@ -161,7 +161,7 @@ public final class WebMvcTags {
 	}
 
 	/**
-	 * Creates a {@code exception} tag based on the {@link Class#getSimpleName() simple
+	 * Creates an {@code exception} tag based on the {@link Class#getSimpleName() simple
 	 * name} of the class of the given {@code exception}.
 	 * @param exception the exception, may be {@code null}
 	 * @return the exception tag derived from the exception

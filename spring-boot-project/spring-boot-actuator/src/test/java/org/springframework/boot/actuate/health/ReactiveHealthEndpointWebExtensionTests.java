@@ -34,6 +34,7 @@ import static org.mockito.Mockito.mock;
  * Tests for {@link ReactiveHealthEndpointWebExtension}.
  *
  * @author Phillip Webb
+ * @author Scott Frederick
  */
 class ReactiveHealthEndpointWebExtensionTests extends
 		HealthEndpointSupportTests<ReactiveHealthContributorRegistry, ReactiveHealthContributor, Mono<? extends HealthComponent>> {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -76,6 +76,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @author Andrew McGhie
  * @author HaiTao Zhang
  * @author Rafiullah Hamedy
+ * @author Chris Bono
  */
 class ServerPropertiesTests {
 
@@ -107,7 +108,7 @@ class ServerPropertiesTests {
 	@Test
 	void testConnectionTimeout() {
 		bind("server.connection-timeout", "60s");
-		assertThat(this.properties.getConnectionTimeout()).isEqualTo(Duration.ofMillis(60000));
+		assertThat(this.properties.getConnectionTimeout()).hasMillis(60000);
 	}
 
 	@Test
@@ -149,7 +150,7 @@ class ServerPropertiesTests {
 		assertThat(tomcat.getRemoteIpHeader()).isEqualTo("Remote-Ip");
 		assertThat(tomcat.getProtocolHeader()).isEqualTo("X-Forwarded-Protocol");
 		assertThat(tomcat.getInternalProxies()).isEqualTo("10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}");
-		assertThat(tomcat.getBackgroundProcessorDelay()).isEqualTo(Duration.ofSeconds(10));
+		assertThat(tomcat.getBackgroundProcessorDelay()).hasSeconds(10);
 		assertThat(tomcat.getRelaxedPathChars()).containsExactly('|', '<');
 		assertThat(tomcat.getRelaxedQueryChars()).containsExactly('^', '|');
 	}
@@ -209,33 +210,108 @@ class ServerPropertiesTests {
 	}
 
 	@Test
+	void testCustomizeTomcatMaxThreads() {
+		bind("server.tomcat.threads.max", "10");
+		assertThat(this.properties.getTomcat().getThreads().getMax()).isEqualTo(10);
+	}
+
+	@Deprecated
+	@Test
+	void testCustomizeTomcatMaxThreadsDeprecated() {
+		bind("server.tomcat.maxThreads", "10");
+		assertThat(this.properties.getTomcat().getThreads().getMax()).isEqualTo(10);
+	}
+
+	@Test
+	void testCustomizeTomcatMinSpareThreads() {
+		bind("server.tomcat.threads.min-spare", "10");
+		assertThat(this.properties.getTomcat().getThreads().getMinSpare()).isEqualTo(10);
+	}
+
+	@Deprecated
+	@Test
+	void testCustomizeTomcatMinSpareThreadsDeprecated() {
+		bind("server.tomcat.min-spare-threads", "10");
+		assertThat(this.properties.getTomcat().getThreads().getMinSpare()).isEqualTo(10);
+	}
+
+	@Test
 	void testCustomizeJettyAcceptors() {
+		bind("server.jetty.threads.acceptors", "10");
+		assertThat(this.properties.getJetty().getThreads().getAcceptors()).isEqualTo(10);
+	}
+
+	@Deprecated
+	@Test
+	void testCustomizeJettyAcceptorsDeprecated() {
 		bind("server.jetty.acceptors", "10");
-		assertThat(this.properties.getJetty().getAcceptors()).isEqualTo(10);
+		assertThat(this.properties.getJetty().getThreads().getAcceptors()).isEqualTo(10);
 	}
 
 	@Test
 	void testCustomizeJettySelectors() {
+		bind("server.jetty.threads.selectors", "10");
+		assertThat(this.properties.getJetty().getThreads().getSelectors()).isEqualTo(10);
+	}
+
+	@Deprecated
+	@Test
+	void testCustomizeJettySelectorsDeprecated() {
 		bind("server.jetty.selectors", "10");
 		assertThat(this.properties.getJetty().getSelectors()).isEqualTo(10);
+		assertThat(this.properties.getJetty().getThreads().getSelectors()).isEqualTo(10);
 	}
 
 	@Test
 	void testCustomizeJettyMaxThreads() {
-		bind("server.jetty.max-threads", "10");
-		assertThat(this.properties.getJetty().getMaxThreads()).isEqualTo(10);
+		bind("server.jetty.threads.max", "10");
+		assertThat(this.properties.getJetty().getThreads().getMax()).isEqualTo(10);
+	}
+
+	@Deprecated
+	@Test
+	void testCustomizeJettyMaxThreadsDeprecated() {
+		bind("server.jetty.maxThreads", "10");
+		assertThat(this.properties.getJetty().getThreads().getMax()).isEqualTo(10);
 	}
 
 	@Test
 	void testCustomizeJettyMinThreads() {
-		bind("server.jetty.min-threads", "10");
-		assertThat(this.properties.getJetty().getMinThreads()).isEqualTo(10);
+		bind("server.jetty.threads.min", "10");
+		assertThat(this.properties.getJetty().getThreads().getMin()).isEqualTo(10);
+	}
+
+	@Deprecated
+	@Test
+	void testCustomizeJettyMinThreadsDeprecated() {
+		bind("server.jetty.minThreads", "10");
+		assertThat(this.properties.getJetty().getThreads().getMin()).isEqualTo(10);
 	}
 
 	@Test
 	void testCustomizeJettyIdleTimeout() {
+		bind("server.jetty.threads.idle-timeout", "10s");
+		assertThat(this.properties.getJetty().getThreads().getIdleTimeout()).isEqualTo(Duration.ofSeconds(10));
+	}
+
+	@Deprecated
+	@Test
+	void testCustomizeJettyIdleTimeoutDeprecated() {
 		bind("server.jetty.thread-idle-timeout", "10s");
-		assertThat(this.properties.getJetty().getThreadIdleTimeout()).isEqualTo(Duration.ofSeconds(10));
+		assertThat(this.properties.getJetty().getThreads().getIdleTimeout()).hasSeconds(10);
+	}
+
+	@Test
+	void testCustomizeJettyMaxQueueCapacity() {
+		bind("server.jetty.threads.max-queue-capacity", "5150");
+		assertThat(this.properties.getJetty().getThreads().getMaxQueueCapacity()).isEqualTo(5150);
+	}
+
+	@Deprecated
+	@Test
+	void testCustomizeJettyMaxQueueCapacityDeprecated() {
+		bind("server.jetty.max-queue-capacity", "5150");
+		assertThat(this.properties.getJetty().getThreads().getMaxQueueCapacity()).isEqualTo(5150);
 	}
 
 	@Test
@@ -250,6 +326,32 @@ class ServerPropertiesTests {
 		bind("server.undertow.options.socket.ALWAYS_SET_KEEP_ALIVE", "true");
 		assertThat(this.properties.getUndertow().getOptions().getSocket()).containsEntry("ALWAYS_SET_KEEP_ALIVE",
 				"true");
+	}
+
+	@Test
+	void testCustomizeUndertowIoThreads() {
+		bind("server.undertow.threads.io", "4");
+		assertThat(this.properties.getUndertow().getThreads().getIo()).isEqualTo(4);
+	}
+
+	@Deprecated
+	@Test
+	void testCustomizeUndertowIoThreadsDeprecated() {
+		bind("server.undertow.ioThreads", "4");
+		assertThat(this.properties.getUndertow().getThreads().getIo()).isEqualTo(4);
+	}
+
+	@Test
+	void testCustomizeUndertowWorkerThreads() {
+		bind("server.undertow.threads.worker", "10");
+		assertThat(this.properties.getUndertow().getThreads().getWorker()).isEqualTo(10);
+	}
+
+	@Deprecated
+	@Test
+	void testCustomizeUndertowWorkerThreadsDeprecated() {
+		bind("server.undertow.workerThreads", "10");
+		assertThat(this.properties.getUndertow().getThreads().getWorker()).isEqualTo(10);
 	}
 
 	@Test
@@ -290,12 +392,12 @@ class ServerPropertiesTests {
 
 	@Test
 	void tomcatMaxThreadsMatchesProtocolDefault() throws Exception {
-		assertThat(this.properties.getTomcat().getMaxThreads()).isEqualTo(getDefaultProtocol().getMaxThreads());
+		assertThat(this.properties.getTomcat().getThreads().getMax()).isEqualTo(getDefaultProtocol().getMaxThreads());
 	}
 
 	@Test
 	void tomcatMinSpareThreadsMatchesProtocolDefault() throws Exception {
-		assertThat(this.properties.getTomcat().getMinSpareThreads())
+		assertThat(this.properties.getTomcat().getThreads().getMinSpare())
 				.isEqualTo(getDefaultProtocol().getMinSpareThreads());
 	}
 
@@ -308,7 +410,7 @@ class ServerPropertiesTests {
 	@Test
 	void tomcatBackgroundProcessorDelayMatchesEngineDefault() {
 		assertThat(this.properties.getTomcat().getBackgroundProcessorDelay())
-				.isEqualTo(Duration.ofSeconds((new StandardEngine().getBackgroundProcessorDelay())));
+				.hasSeconds((new StandardEngine().getBackgroundProcessorDelay()));
 	}
 
 	@Test

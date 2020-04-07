@@ -398,7 +398,7 @@ public class JettyServletWebServerFactory extends AbstractServletWebServerFactor
 	 * @return a new {@link JettyWebServer} instance
 	 */
 	protected JettyWebServer getJettyWebServer(Server server) {
-		return new JettyWebServer(server, getPort() >= 0);
+		return new JettyWebServer(server, getPort() >= 0, getShutdown().getGracePeriod());
 	}
 
 	@Override
@@ -484,11 +484,7 @@ public class JettyServletWebServerFactory extends AbstractServletWebServerFactor
 		return this.threadPool;
 	}
 
-	/**
-	 * Set a Jetty {@link ThreadPool} that should be used by the {@link Server}. If set to
-	 * {@code null} (default), the {@link Server} creates a {@link ThreadPool} implicitly.
-	 * @param threadPool a Jetty ThreadPool to be used
-	 */
+	@Override
 	public void setThreadPool(ThreadPool threadPool) {
 		this.threadPool = threadPool;
 	}

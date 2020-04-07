@@ -39,11 +39,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Properties;
-import java.util.function.Consumer;
 
 import org.apache.maven.shared.invoker.DefaultInvocationRequest;
 import org.apache.maven.shared.invoker.DefaultInvoker;
-import org.apache.maven.shared.invoker.InvocationOutputHandler;
 import org.apache.maven.shared.invoker.InvocationRequest;
 import org.apache.maven.shared.invoker.InvocationResult;
 import org.apache.maven.shared.invoker.Invoker;
@@ -56,7 +54,7 @@ import static org.assertj.core.api.Assertions.contentOf;
  * Helper class for executing a Maven build.
  *
  * @author Andy Wilkinson
- *
+ * @author Scott Frederick
  */
 class MavenBuild {
 
@@ -69,6 +67,8 @@ class MavenBuild {
 	private final List<String> goals = new ArrayList<>();
 
 	private final Properties properties = new Properties();
+
+	private ProjectCallback preparation;
 
 	private File projectDir;
 
@@ -109,7 +109,20 @@ class MavenBuild {
 		return this;
 	}
 
-	void execute(Consumer<File> callback) {
+	MavenBuild prepare(ProjectCallback callback) {
+		this.preparation = callback;
+		return this;
+	}
+
+	void execute(ProjectCallback callback) {
+		execute(callback, 0);
+	}
+
+	void executeAndFail(ProjectCallback callback) {
+		execute(callback, 1);
+	}
+
+	private void execute(ProjectCallback callback, int expectedExitCode) {
 		Invoker invoker = new DefaultInvoker();
 		invoker.setMavenHome(this.home);
 		InvocationRequest request = new DefaultInvocationRequest();
@@ -151,6 +164,7 @@ class MavenBuild {
 			Files.write(destination.resolve("settings.xml"), settingsXml.getBytes(StandardCharsets.UTF_8),
 					StandardOpenOption.CREATE_NEW);
 			request.setBaseDirectory(this.temp);
+			request.setJavaHome(new File(System.getProperty("java.home")));
 			request.setProperties(this.properties);
 			request.setGoals(this.goals.isEmpty() ? Collections.singletonList("package") : this.goals);
 			request.setUserSettingsFile(new File(this.temp, "settings.xml"));
@@ -158,26 +172,24 @@ class MavenBuild {
 			request.setBatchMode(true);
 			File target = new File(this.temp, "target");
 			target.mkdirs();
+			if (this.preparation != null) {
+				this.preparation.doWith(this.temp);
+			}
 			File buildLogFile = new File(target, "build.log");
 			try (PrintWriter buildLog = new PrintWriter(new FileWriter(buildLogFile))) {
-				request.setOutputHandler(new InvocationOutputHandler() {
-
-					@Override
-					public void consumeLine(String line) {
-						buildLog.println(line);
-						buildLog.flush();
-					}
-
+				request.setOutputHandler((line) -> {
+					buildLog.println(line);
+					buildLog.flush();
 				});
 				try {
 					InvocationResult result = invoker.execute(request);
-					assertThat(result.getExitCode()).as(contentOf(buildLogFile)).isEqualTo(0);
+					assertThat(result.getExitCode()).as(contentOf(buildLogFile)).isEqualTo(expectedExitCode);
 				}
 				catch (MavenInvocationException ex) {
 					throw new RuntimeException(ex);
 				}
 			}
-			callback.accept(this.temp);
+			callback.doWith(this.temp);
 		}
 		catch (Exception ex) {
 			throw new RuntimeException(ex);
@@ -197,6 +209,21 @@ class MavenBuild {
 		catch (IOException ex) {
 			throw new RuntimeException(ex);
 		}
+	}
+
+	/**
+	 * Action to take on a maven project folder.
+	 */
+	@FunctionalInterface
+	public interface ProjectCallback {
+
+		/**
+		 * Take the action on the given project.
+		 * @param project the project directory
+		 * @throws Exception on error
+		 */
+		void doWith(File project) throws Exception;
+
 	}
 
 }

@@ -51,9 +51,21 @@ public class CassandraProperties {
 	private String sessionName;
 
 	/**
-	 * Cluster node addresses in the form 'host:port'.
+	 * Cluster node addresses in the form 'host:port', or a simple 'host' to use the
+	 * configured port.
 	 */
 	private final List<String> contactPoints = new ArrayList<>(Collections.singleton("127.0.0.1:9042"));
+
+	/**
+	 * Port to use if a contact point does not specify one.
+	 */
+	private int port = 9042;
+
+	/**
+	 * Datacenter that is considered "local". Contact points should be from this
+	 * datacenter.
+	 */
+	private String localDatacenter;
 
 	/**
 	 * Login user of the server.
@@ -139,6 +151,22 @@ public class CassandraProperties {
 
 	public List<String> getContactPoints() {
 		return this.contactPoints;
+	}
+
+	public int getPort() {
+		return this.port;
+	}
+
+	public void setPort(int port) {
+		this.port = port;
+	}
+
+	public String getLocalDatacenter() {
+		return this.localDatacenter;
+	}
+
+	public void setLocalDatacenter(String localDatacenter) {
+		this.localDatacenter = localDatacenter;
 	}
 
 	public String getUsername() {

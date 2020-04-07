@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.springframework.boot.web.embedded.tomcat;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.SocketException;
 import java.net.URISyntaxException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +27,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.naming.InitialContext;
@@ -55,6 +57,11 @@ import org.apache.catalina.util.CharsetMapper;
 import org.apache.catalina.valves.RemoteIpValve;
 import org.apache.coyote.ProtocolHandler;
 import org.apache.coyote.http11.AbstractHttp11Protocol;
+import org.apache.http.HttpResponse;
+import org.apache.http.NoHttpResponseException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.conn.HttpHostConnectException;
+import org.apache.http.impl.client.HttpClients;
 import org.apache.jasper.servlet.JspServlet;
 import org.apache.tomcat.JarScanFilter;
 import org.apache.tomcat.JarScanType;
@@ -64,8 +71,12 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 import org.springframework.boot.testsupport.system.CapturedOutput;
+import org.springframework.boot.testsupport.web.servlet.ExampleServlet;
 import org.springframework.boot.web.server.PortInUseException;
+import org.springframework.boot.web.server.Shutdown;
+import org.springframework.boot.web.server.Ssl;
 import org.springframework.boot.web.server.WebServerException;
+import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.boot.web.servlet.server.AbstractServletWebServerFactory;
 import org.springframework.boot.web.servlet.server.AbstractServletWebServerFactoryTests;
 import org.springframework.core.io.ByteArrayResource;
@@ -82,6 +93,7 @@ import org.springframework.web.client.RestTemplate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -543,6 +555,75 @@ class TomcatServletWebServerFactoryTests extends AbstractServletWebServerFactory
 		this.webServer.start();
 	}
 
+	@Test
+	void sslWithInvalidAliasFailsDuringStartup() {
+		AbstractServletWebServerFactory factory = getFactory();
+		Ssl ssl = getSsl(null, "password", "test-alias-404", "src/test/resources/test.jks");
+		factory.setSsl(ssl);
+		ServletRegistrationBean<ExampleServlet> registration = new ServletRegistrationBean<>(
+				new ExampleServlet(true, false), "/hello");
+		assertThatThrownBy(() -> factory.getWebServer(registration).start()).isInstanceOf(WebServerException.class);
+	}
+
+	@Test
+	void whenServerIsShuttingDownGracefullyThenNewConnectionsCannotBeMade() throws Exception {
+		AbstractServletWebServerFactory factory = getFactory();
+		Shutdown shutdown = new Shutdown();
+		shutdown.setGracePeriod(Duration.ofSeconds(5));
+		factory.setShutdown(shutdown);
+		BlockingServlet blockingServlet = new BlockingServlet();
+		this.webServer = factory.getWebServer((context) -> {
+			Dynamic registration = context.addServlet("blockingServlet", blockingServlet);
+			registration.addMapping("/blocking");
+			registration.setAsyncSupported(true);
+		});
+		this.webServer.start();
+		int port = this.webServer.getPort();
+		Future<Object> request = initiateGetRequest(port, "/blocking");
+		blockingServlet.awaitQueue();
+		Future<Boolean> shutdownResult = initiateGracefulShutdown();
+		Future<Object> unconnectableRequest = initiateGetRequest(port, "/");
+		assertThat(shutdownResult.get()).isEqualTo(false);
+		blockingServlet.admitOne();
+		assertThat(request.get()).isInstanceOf(HttpResponse.class);
+		assertThat(unconnectableRequest.get()).isInstanceOf(HttpHostConnectException.class);
+		this.webServer.stop();
+	}
+
+	@Test
+	void whenServerIsShuttingDownARequestOnAnIdleConnectionResultsInConnectionReset() throws Exception {
+		AbstractServletWebServerFactory factory = getFactory();
+		Shutdown shutdown = new Shutdown();
+		shutdown.setGracePeriod(Duration.ofSeconds(5));
+		factory.setShutdown(shutdown);
+		BlockingServlet blockingServlet = new BlockingServlet();
+		this.webServer = factory.getWebServer((context) -> {
+			Dynamic registration = context.addServlet("blockingServlet", blockingServlet);
+			registration.addMapping("/blocking");
+			registration.setAsyncSupported(true);
+		});
+		HttpClient httpClient = HttpClients.createMinimal();
+		this.webServer.start();
+		int port = this.webServer.getPort();
+		Future<Object> keepAliveRequest = initiateGetRequest(httpClient, port, "/blocking");
+		blockingServlet.awaitQueue();
+		blockingServlet.admitOne();
+		assertThat(keepAliveRequest.get()).isInstanceOf(HttpResponse.class);
+		Future<Object> request = initiateGetRequest(port, "/blocking");
+		blockingServlet.awaitQueue();
+		initiateGracefulShutdown();
+		Future<Object> idleConnectionRequest = initiateGetRequest(httpClient, port, "/blocking");
+		blockingServlet.admitOne();
+		Object response = request.get();
+		assertThat(response).isInstanceOf(HttpResponse.class);
+		Object idleConnectionRequestResult = idleConnectionRequest.get();
+		assertThat(idleConnectionRequestResult).isInstanceOfAny(SocketException.class, NoHttpResponseException.class);
+		if (idleConnectionRequestResult instanceof SocketException) {
+			assertThat((SocketException) idleConnectionRequestResult).hasMessage("Connection reset");
+		}
+		this.webServer.stop();
+	}
+
 	@Override
 	protected JspServlet getJspServlet() throws ServletException {
 		Tomcat tomcat = ((TomcatWebServer) this.webServer).getTomcat();
@@ -594,6 +675,11 @@ class TomcatServletWebServerFactoryTests extends AbstractServletWebServerFactory
 	protected void handleExceptionCausedByBlockedPortOnSecondaryConnector(RuntimeException ex, int blockedPort) {
 		assertThat(ex).isInstanceOf(ConnectorStartFailedException.class);
 		assertThat(((ConnectorStartFailedException) ex).getPort()).isEqualTo(blockedPort);
+	}
+
+	@Override
+	protected boolean inGracefulShutdown() {
+		return ((TomcatWebServer) this.webServer).inGracefulShutdown();
 	}
 
 }

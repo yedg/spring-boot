@@ -30,6 +30,7 @@ import static org.mockito.Mockito.mock;
  * Tests for {@link HealthEndpoint}.
  *
  * @author Phillip Webb
+ * @author Scott Frederick
  */
 class HealthEndpointTests
 		extends HealthEndpointSupportTests<HealthContributorRegistry, HealthContributor, HealthComponent> {

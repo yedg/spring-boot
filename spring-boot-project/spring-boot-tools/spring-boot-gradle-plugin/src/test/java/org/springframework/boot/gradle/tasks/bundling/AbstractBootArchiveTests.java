@@ -110,13 +110,15 @@ abstract class AbstractBootArchiveTests<T extends Jar & BootArchive> {
 	}
 
 	@Test
-	void classpathJarsArePackagedBeneathLibPath() throws IOException {
+	void classpathJarsArePackagedBeneathLibPathAndAreStored() throws IOException {
 		this.task.setMainClassName("com.example.Main");
 		this.task.classpath(jarFile("one.jar"), jarFile("two.jar"));
 		executeTask();
 		try (JarFile jarFile = new JarFile(this.task.getArchiveFile().get().getAsFile())) {
-			assertThat(jarFile.getEntry(this.libPath + "one.jar")).isNotNull();
-			assertThat(jarFile.getEntry(this.libPath + "two.jar")).isNotNull();
+			assertThat(jarFile.getEntry(this.libPath + "one.jar")).isNotNull().extracting(ZipEntry::getMethod)
+					.isEqualTo(ZipEntry.STORED);
+			assertThat(jarFile.getEntry(this.libPath + "two.jar")).isNotNull().extracting(ZipEntry::getMethod)
+					.isEqualTo(ZipEntry.STORED);
 		}
 	}
 
@@ -435,12 +437,16 @@ abstract class AbstractBootArchiveTests<T extends Jar & BootArchive> {
 	}
 
 	protected List<String> getEntryNames(File file) throws IOException {
-		List<String> entryNames = new ArrayList<>();
 		try (JarFile jarFile = new JarFile(file)) {
-			Enumeration<JarEntry> entries = jarFile.entries();
-			while (entries.hasMoreElements()) {
-				entryNames.add(entries.nextElement().getName());
-			}
+			return getEntryNames(jarFile);
+		}
+	}
+
+	protected List<String> getEntryNames(JarFile jarFile) {
+		List<String> entryNames = new ArrayList<>();
+		Enumeration<JarEntry> entries = jarFile.entries();
+		while (entries.hasMoreElements()) {
+			entryNames.add(entries.nextElement().getName());
 		}
 		return entryNames;
 	}

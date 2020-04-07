@@ -124,14 +124,18 @@ public final class EndpointRequest {
 
 		private volatile RequestMatcher delegate;
 
+		private ManagementPortType managementPortType;
+
 		AbstractRequestMatcher() {
 			super(WebApplicationContext.class);
 		}
 
 		@Override
 		protected boolean ignoreApplicationContext(WebApplicationContext applicationContext) {
-			ManagementPortType type = ManagementPortType.get(applicationContext.getEnvironment());
-			return type == ManagementPortType.DIFFERENT
+			if (this.managementPortType == null) {
+				this.managementPortType = ManagementPortType.get(applicationContext.getEnvironment());
+			}
+			return this.managementPortType == ManagementPortType.DIFFERENT
 					&& !WebServerApplicationContext.hasServerNamespace(applicationContext, "management");
 		}
 

@@ -31,6 +31,7 @@ import org.springframework.util.Assert;
  */
 public interface ReactiveHealthContributor {
 
+	@SuppressWarnings("deprecation")
 	static ReactiveHealthContributor adapt(HealthContributor healthContributor) {
 		Assert.notNull(healthContributor, "HealthContributor must not be null");
 		if (healthContributor instanceof HealthIndicator) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2019-2020 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,9 @@ import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.TaskAction;
 import org.gradle.platform.base.Platform;
 
+import org.springframework.boot.build.bom.BomExtension;
+import org.springframework.boot.build.bom.Library;
+
 /**
  * {@link Task} to extract constraints from a {@link Platform}. The platform's own
  * constraints and those in any boms upon which it depends are extracted.
@@ -50,7 +53,9 @@ public class ExtractVersionConstraints extends AbstractTask {
 
 	private final Set<ConstrainedVersion> constrainedVersions = new TreeSet<>();
 
-	private final List<String> projectPaths = new ArrayList<String>();
+	private final Set<VersionProperty> versionProperties = new TreeSet<>();
+
+	private final List<String> projectPaths = new ArrayList<>();
 
 	public ExtractVersionConstraints() {
 		DependencyHandler dependencies = getProject().getDependencies();
@@ -74,10 +79,16 @@ public class ExtractVersionConstraints extends AbstractTask {
 		return this.constrainedVersions;
 	}
 
+	@Internal
+	public Set<VersionProperty> getVersionProperties() {
+		return this.versionProperties;
+	}
+
 	@TaskAction
 	void extractVersionConstraints() {
 		this.configuration.resolve();
 		for (String projectPath : this.projectPaths) {
+			extractVersionProperties(projectPath);
 			for (DependencyConstraint constraint : getProject().project(projectPath).getConfigurations()
 					.getByName("apiElements").getAllDependencyConstraints()) {
 				this.versionConstraints.put(constraint.getGroup() + ":" + constraint.getName(),
@@ -85,6 +96,14 @@ public class ExtractVersionConstraints extends AbstractTask {
 				this.constrainedVersions.add(new ConstrainedVersion(constraint.getGroup(), constraint.getName(),
 						constraint.getVersionConstraint().toString()));
 			}
+		}
+	}
+
+	private void extractVersionProperties(String projectPath) {
+		Object bom = getProject().project(projectPath).getExtensions().getByName("bom");
+		BomExtension bomExtension = (BomExtension) bom;
+		for (Library lib : bomExtension.getLibraries()) {
+			this.versionProperties.add(new VersionProperty(lib.getName(), lib.getVersionProperty()));
 		}
 	}
 
@@ -132,6 +151,36 @@ public class ExtractVersionConstraints extends AbstractTask {
 				return groupComparison;
 			}
 			return this.artifact.compareTo(other.artifact);
+		}
+
+	}
+
+	public static final class VersionProperty implements Comparable<VersionProperty>, Serializable {
+
+		private final String libraryName;
+
+		private final String versionProperty;
+
+		public VersionProperty(String libraryName, String versionProperty) {
+			this.libraryName = libraryName;
+			this.versionProperty = versionProperty;
+		}
+
+		public String getLibraryName() {
+			return this.libraryName;
+		}
+
+		public String getVersionProperty() {
+			return this.versionProperty;
+		}
+
+		@Override
+		public int compareTo(VersionProperty other) {
+			int groupComparison = this.libraryName.compareToIgnoreCase(other.libraryName);
+			if (groupComparison != 0) {
+				return groupComparison;
+			}
+			return this.versionProperty.compareTo(other.versionProperty);
 		}
 
 	}

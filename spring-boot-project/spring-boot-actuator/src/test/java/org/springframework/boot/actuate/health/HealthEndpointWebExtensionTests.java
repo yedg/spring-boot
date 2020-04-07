@@ -33,6 +33,7 @@ import static org.mockito.Mockito.mock;
  * Tests for {@link HealthEndpointWebExtension}.
  *
  * @author Phillip Webb
+ * @author Scott Frederick
  */
 class HealthEndpointWebExtensionTests
 		extends HealthEndpointSupportTests<HealthContributorRegistry, HealthContributor, HealthComponent> {

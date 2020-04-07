@@ -37,6 +37,7 @@ import org.springframework.boot.actuate.endpoint.web.annotation.EndpointWebExten
  *
  * @author Stephane Nicoll
  * @author Phillip Webb
+ * @author Scott Frederick
  * @since 2.0.0
  */
 @EndpointWebExtension(endpoint = HealthEndpoint.class)

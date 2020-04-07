@@ -22,6 +22,7 @@ import reactor.core.publisher.Mono;
 
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.boot.availability.ReadinessStateChangedEvent;
 import org.springframework.boot.web.context.ConfigurableWebServerApplicationContext;
 import org.springframework.boot.web.reactive.server.ReactiveWebServerFactory;
 import org.springframework.boot.web.server.WebServer;
@@ -144,6 +145,16 @@ public class ReactiveWebServerApplicationContext extends GenericReactiveWebAppli
 							+ StringUtils.arrayToCommaDelimitedString(beanNames));
 		}
 		return getBeanFactory().getBean(beanNames[0], HttpHandler.class);
+	}
+
+	@Override
+	protected void doClose() {
+		publishEvent(ReadinessStateChangedEvent.unready());
+		WebServer webServer = getWebServer();
+		if (webServer != null) {
+			webServer.shutDownGracefully();
+		}
+		super.doClose();
 	}
 
 	@Override

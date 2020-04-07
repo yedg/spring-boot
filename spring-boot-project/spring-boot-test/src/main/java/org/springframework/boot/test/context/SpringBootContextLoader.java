@@ -23,12 +23,9 @@ import java.util.List;
 import org.springframework.beans.BeanUtils;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
-import org.springframework.boot.context.properties.bind.Bindable;
-import org.springframework.boot.context.properties.bind.Binder;
-import org.springframework.boot.context.properties.source.ConfigurationPropertySource;
-import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.boot.test.mock.web.SpringBootMockServletContext;
+import org.springframework.boot.test.util.TestPropertyValues;
 import org.springframework.boot.web.reactive.context.GenericReactiveWebApplicationContext;
 import org.springframework.boot.web.servlet.support.ServletContextApplicationContextInitializer;
 import org.springframework.context.ApplicationContext;
@@ -97,7 +94,7 @@ public class SpringBootContextLoader extends AbstractContextLoader {
 		application.getSources().addAll(Arrays.asList(configLocations));
 		ConfigurableEnvironment environment = getEnvironment();
 		if (!ObjectUtils.isEmpty(config.getActiveProfiles())) {
-			environment.setActiveProfiles(config.getActiveProfiles());
+			setActiveProfiles(environment, config.getActiveProfiles());
 		}
 		ResourceLoader resourceLoader = (application.getResourceLoader() != null) ? application.getResourceLoader()
 				: new DefaultResourceLoader(getClass().getClassLoader());
@@ -155,29 +152,21 @@ public class SpringBootContextLoader extends AbstractContextLoader {
 				.getValue("args", String[].class).orElse(NO_ARGS);
 	}
 
+	private void setActiveProfiles(ConfigurableEnvironment environment, String[] profiles) {
+		TestPropertyValues.of("spring.profiles.active=" + StringUtils.arrayToCommaDelimitedString(profiles))
+				.applyTo(environment);
+	}
+
 	protected String[] getInlinedProperties(MergedContextConfiguration config) {
 		ArrayList<String> properties = new ArrayList<>();
 		// JMX bean names will clash if the same bean is used in multiple contexts
 		disableJmx(properties);
 		properties.addAll(Arrays.asList(config.getPropertySourceProperties()));
-		if (!isEmbeddedWebEnvironment(config) && !hasCustomServerPort(properties)) {
-			properties.add("server.port=-1");
-		}
 		return StringUtils.toStringArray(properties);
 	}
 
 	private void disableJmx(List<String> properties) {
 		properties.add("spring.jmx.enabled=false");
-	}
-
-	private boolean hasCustomServerPort(List<String> properties) {
-		Binder binder = new Binder(convertToConfigurationPropertySource(properties));
-		return binder.bind("server.port", Bindable.of(String.class)).isBound();
-	}
-
-	private ConfigurationPropertySource convertToConfigurationPropertySource(List<String> properties) {
-		return new MapConfigurationPropertySource(
-				TestPropertySourceUtils.convertInlinedPropertiesToMap(StringUtils.toStringArray(properties)));
 	}
 
 	/**

@@ -155,7 +155,7 @@ public abstract class AbstractRunMojo extends AbstractDependencyFilterMojo {
 	 * quotes. When specified, takes precedence over {@link #arguments}.
 	 * @since 2.2.3
 	 */
-	@Parameter(property = "spring-boot.run.arguments", readonly = true)
+	@Parameter(property = "spring-boot.run.arguments")
 	private String commandlineArguments;
 
 	/**
@@ -317,8 +317,8 @@ public abstract class AbstractRunMojo extends AbstractDependencyFilterMojo {
 	 * @return a {@link RunArguments} defining the application arguments
 	 */
 	protected RunArguments resolveApplicationArguments() {
-		RunArguments runArguments = (this.commandlineArguments != null) ? new RunArguments(this.commandlineArguments)
-				: new RunArguments(this.arguments);
+		RunArguments runArguments = (this.arguments != null) ? new RunArguments(this.arguments)
+				: new RunArguments(this.commandlineArguments);
 		addActiveProfileArgument(runArguments);
 		return runArguments;
 	}
@@ -326,7 +326,7 @@ public abstract class AbstractRunMojo extends AbstractDependencyFilterMojo {
 	/**
 	 * Provides access to the java binary executable, regardless of OS.
 	 * @return the java executable
-	 **/
+	 */
 	protected String getJavaExecutable() {
 		Toolchain toolchain = this.toolchainManager.getToolchainFromBuildContext("jdk", this.session);
 		String javaExecutable = (toolchain != null) ? toolchain.findTool("java") : null;
@@ -559,7 +559,7 @@ public abstract class AbstractRunMojo extends AbstractDependencyFilterMojo {
 			Thread thread = Thread.currentThread();
 			ClassLoader classLoader = thread.getContextClassLoader();
 			try {
-				Class<?> startClass = classLoader.loadClass(this.startClassName);
+				Class<?> startClass = Class.forName(this.startClassName, false, classLoader);
 				Method mainMethod = startClass.getMethod("main", String[].class);
 				if (!mainMethod.isAccessible()) {
 					mainMethod.setAccessible(true);
