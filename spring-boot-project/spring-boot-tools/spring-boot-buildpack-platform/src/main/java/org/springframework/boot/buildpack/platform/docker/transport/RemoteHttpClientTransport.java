@@ -16,6 +16,9 @@
 
 package org.springframework.boot.buildpack.platform.docker.transport;
 
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
 import javax.net.ssl.SSLContext;
 
 import org.apache.http.HttpHost;
@@ -37,6 +40,8 @@ import org.springframework.util.Assert;
  */
 final class RemoteHttpClientTransport extends HttpClientTransport {
 
+	private static final String UNIX_SOCKET_PREFIX = "unix://";
+
 	private static final String DOCKER_HOST = "DOCKER_HOST";
 
 	private static final String DOCKER_TLS_VERIFY = "DOCKER_TLS_VERIFY";
@@ -53,7 +58,20 @@ final class RemoteHttpClientTransport extends HttpClientTransport {
 
 	static RemoteHttpClientTransport createIfPossible(Environment environment, SslContextFactory sslContextFactory) {
 		String host = environment.get(DOCKER_HOST);
-		return (host != null) ? create(environment, sslContextFactory, HttpHost.create(host)) : null;
+		if (host == null || isLocalFileReference(host)) {
+			return null;
+		}
+		return create(environment, sslContextFactory, HttpHost.create(host));
+	}
+
+	private static boolean isLocalFileReference(String host) {
+		String filePath = host.startsWith(UNIX_SOCKET_PREFIX) ? host.substring(UNIX_SOCKET_PREFIX.length()) : host;
+		try {
+			return Files.exists(Paths.get(filePath));
+		}
+		catch (Exception ex) {
+			return false;
+		}
 	}
 
 	private static RemoteHttpClientTransport create(Environment environment, SslContextFactory sslContextFactory,

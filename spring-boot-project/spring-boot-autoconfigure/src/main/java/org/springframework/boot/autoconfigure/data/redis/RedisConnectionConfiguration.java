@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,7 @@ import org.springframework.util.StringUtils;
  * @author Mark Paluch
  * @author Stephane Nicoll
  * @author Alen Turkovic
+ * @author Scott Frederick
  */
 abstract class RedisConnectionConfiguration {
 
@@ -81,6 +82,9 @@ abstract class RedisConnectionConfiguration {
 			config.setSentinels(createSentinels(sentinelProperties));
 			if (this.properties.getPassword() != null) {
 				config.setPassword(RedisPassword.of(this.properties.getPassword()));
+			}
+			if (sentinelProperties.getPassword() != null) {
+				config.setSentinelPassword(RedisPassword.of(sentinelProperties.getPassword()));
 			}
 			config.setDatabase(this.properties.getDatabase());
 			return config;
@@ -132,7 +136,11 @@ abstract class RedisConnectionConfiguration {
 	protected ConnectionInfo parseUrl(String url) {
 		try {
 			URI uri = new URI(url);
-			boolean useSsl = (url.startsWith("rediss://"));
+			String scheme = uri.getScheme();
+			if (!"redis".equals(scheme) && !"rediss".equals(scheme)) {
+				throw new RedisUrlSyntaxException(url);
+			}
+			boolean useSsl = ("rediss".equals(scheme));
 			String password = null;
 			if (uri.getUserInfo() != null) {
 				password = uri.getUserInfo();
@@ -144,7 +152,7 @@ abstract class RedisConnectionConfiguration {
 			return new ConnectionInfo(uri, useSsl, password);
 		}
 		catch (URISyntaxException ex) {
-			throw new IllegalArgumentException("Malformed url '" + url + "'", ex);
+			throw new RedisUrlSyntaxException(url, ex);
 		}
 	}
 

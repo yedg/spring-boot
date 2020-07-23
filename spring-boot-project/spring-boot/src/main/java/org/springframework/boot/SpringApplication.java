@@ -23,7 +23,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +46,10 @@ import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.ConfigurationPropertySources;
 import org.springframework.boot.convert.ApplicationConversionService;
+import org.springframework.boot.env.DefaultPropertiesPropertySource;
+import org.springframework.boot.web.reactive.context.AnnotationConfigReactiveWebServerApplicationContext;
 import org.springframework.boot.web.reactive.context.StandardReactiveWebEnvironment;
+import org.springframework.boot.web.servlet.context.AnnotationConfigServletWebServerApplicationContext;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.context.ApplicationListener;
@@ -66,7 +68,6 @@ import org.springframework.core.env.CommandLinePropertySource;
 import org.springframework.core.env.CompositePropertySource;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.Environment;
-import org.springframework.core.env.MapPropertySource;
 import org.springframework.core.env.MutablePropertySources;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.env.SimpleCommandLinePropertySource;
@@ -163,21 +164,27 @@ public class SpringApplication {
 	/**
 	 * The class name of application context that will be used by default for non-web
 	 * environments.
+	 * @deprecated since 2.4.0 in favour of using a {@link ApplicationContextFactory}
 	 */
+	@Deprecated
 	public static final String DEFAULT_CONTEXT_CLASS = "org.springframework.context."
 			+ "annotation.AnnotationConfigApplicationContext";
 
 	/**
 	 * The class name of application context that will be used by default for web
 	 * environments.
+	 * @deprecated since 2.4.0 in favour of using an {@link ApplicationContextFactory}
 	 */
+	@Deprecated
 	public static final String DEFAULT_SERVLET_WEB_CONTEXT_CLASS = "org.springframework.boot."
 			+ "web.servlet.context.AnnotationConfigServletWebServerApplicationContext";
 
 	/**
 	 * The class name of application context that will be used by default for reactive web
 	 * environments.
+	 * @deprecated since 2.4.0 in favour of using an {@link ApplicationContextFactory}
 	 */
+	@Deprecated
 	public static final String DEFAULT_REACTIVE_WEB_CONTEXT_CLASS = "org.springframework."
 			+ "boot.web.reactive.context.AnnotationConfigReactiveWebServerApplicationContext";
 
@@ -217,8 +224,6 @@ public class SpringApplication {
 
 	private ConfigurableEnvironment environment;
 
-	private Class<? extends ConfigurableApplicationContext> applicationContextClass;
-
 	private WebApplicationType webApplicationType;
 
 	private boolean headless = true;
@@ -231,13 +236,15 @@ public class SpringApplication {
 
 	private Map<String, Object> defaultProperties;
 
-	private Set<String> additionalProfiles = new HashSet<>();
+	private Set<String> additionalProfiles = Collections.emptySet();
 
 	private boolean allowBeanDefinitionOverriding;
 
 	private boolean isCustomEnvironment = false;
 
 	private boolean lazyInitialization = false;
+
+	private ApplicationContextFactory applicationContextFactory = ApplicationContextFactory.DEFAULT;
 
 	/**
 	 * Create a new {@link SpringApplication} instance. The application context will load
@@ -310,7 +317,7 @@ public class SpringApplication {
 			Banner printedBanner = printBanner(environment);
 			context = createApplicationContext();
 			exceptionReporters = getSpringFactoriesInstances(SpringBootExceptionReporter.class,
-					new Class[] { ConfigurableApplicationContext.class }, context);
+					new Class<?>[] { ConfigurableApplicationContext.class }, context);
 			prepareContext(context, environment, listeners, applicationArguments, printedBanner);
 			refreshContext(context);
 			afterRefresh(context, applicationArguments);
@@ -343,6 +350,8 @@ public class SpringApplication {
 		configureEnvironment(environment, applicationArguments.getSourceArgs());
 		ConfigurationPropertySources.attach(environment);
 		listeners.environmentPrepared(environment);
+		DefaultPropertiesPropertySource.moveToEnd(environment);
+		configureAdditionalProfiles(environment);
 		bindToSpringApplication(environment);
 		if (!this.isCustomEnvironment) {
 			environment = new EnvironmentConverter(getClassLoader()).convertEnvironmentIfNecessary(environment,
@@ -491,9 +500,7 @@ public class SpringApplication {
 	 */
 	protected void configurePropertySources(ConfigurableEnvironment environment, String[] args) {
 		MutablePropertySources sources = environment.getPropertySources();
-		if (this.defaultProperties != null && !this.defaultProperties.isEmpty()) {
-			sources.addLast(new MapPropertySource("defaultProperties", this.defaultProperties));
-		}
+		DefaultPropertiesPropertySource.ifNotEmpty(this.defaultProperties, sources::addLast);
 		if (this.addCommandLineProperties && args.length > 0) {
 			String name = CommandLinePropertySource.COMMAND_LINE_PROPERTY_SOURCE_NAME;
 			if (sources.contains(name)) {
@@ -520,9 +527,16 @@ public class SpringApplication {
 	 * @see org.springframework.boot.context.config.ConfigFileApplicationListener
 	 */
 	protected void configureProfiles(ConfigurableEnvironment environment, String[] args) {
-		Set<String> profiles = new LinkedHashSet<>(this.additionalProfiles);
-		profiles.addAll(Arrays.asList(environment.getActiveProfiles()));
-		environment.setActiveProfiles(StringUtils.toStringArray(profiles));
+	}
+
+	private void configureAdditionalProfiles(ConfigurableEnvironment environment) {
+		if (!CollectionUtils.isEmpty(this.additionalProfiles)) {
+			Set<String> profiles = new LinkedHashSet<>(Arrays.asList(environment.getActiveProfiles()));
+			if (!profiles.containsAll(this.additionalProfiles)) {
+				profiles.addAll(this.additionalProfiles);
+				environment.setActiveProfiles(StringUtils.toStringArray(profiles));
+			}
+		}
 	}
 
 	private void configureIgnoreBeanInfo(ConfigurableEnvironment environment) {
@@ -550,7 +564,7 @@ public class SpringApplication {
 			return null;
 		}
 		ResourceLoader resourceLoader = (this.resourceLoader != null) ? this.resourceLoader
-				: new DefaultResourceLoader(getClassLoader());
+				: new DefaultResourceLoader(null);
 		SpringApplicationBannerPrinter bannerPrinter = new SpringApplicationBannerPrinter(resourceLoader, this.banner);
 		if (this.bannerMode == Mode.LOG) {
 			return bannerPrinter.print(environment, this.mainApplicationClass, logger);
@@ -560,32 +574,14 @@ public class SpringApplication {
 
 	/**
 	 * Strategy method used to create the {@link ApplicationContext}. By default this
-	 * method will respect any explicitly set application context or application context
-	 * class before falling back to a suitable default.
+	 * method will respect any explicitly set application context class or factory before
+	 * falling back to a suitable default.
 	 * @return the application context (not yet refreshed)
 	 * @see #setApplicationContextClass(Class)
+	 * @see #setApplicationContextFactory(ApplicationContextFactory)
 	 */
 	protected ConfigurableApplicationContext createApplicationContext() {
-		Class<?> contextClass = this.applicationContextClass;
-		if (contextClass == null) {
-			try {
-				switch (this.webApplicationType) {
-				case SERVLET:
-					contextClass = Class.forName(DEFAULT_SERVLET_WEB_CONTEXT_CLASS);
-					break;
-				case REACTIVE:
-					contextClass = Class.forName(DEFAULT_REACTIVE_WEB_CONTEXT_CLASS);
-					break;
-				default:
-					contextClass = Class.forName(DEFAULT_CONTEXT_CLASS);
-				}
-			}
-			catch (ClassNotFoundException ex) {
-				throw new IllegalStateException(
-						"Unable create a default ApplicationContext, please specify an ApplicationContextClass", ex);
-			}
-		}
-		return (ConfigurableApplicationContext) BeanUtils.instantiateClass(contextClass);
+		return this.applicationContextFactory.create(this.webApplicationType);
 	}
 
 	/**
@@ -1054,7 +1050,15 @@ public class SpringApplication {
 	 * @param profiles the additional profiles to set
 	 */
 	public void setAdditionalProfiles(String... profiles) {
-		this.additionalProfiles = new LinkedHashSet<>(Arrays.asList(profiles));
+		this.additionalProfiles = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(profiles)));
+	}
+
+	/**
+	 * Return an immutable set of any additional profiles in use.
+	 * @return the additional profiles
+	 */
+	public Set<String> getAdditionalProfiles() {
+		return this.additionalProfiles;
 	}
 
 	/**
@@ -1154,10 +1158,28 @@ public class SpringApplication {
 	 * applications or {@link AnnotationConfigApplicationContext} for non web based
 	 * applications.
 	 * @param applicationContextClass the context class to set
+	 * @deprecated since 2.4.0 in favor of
+	 * {@link #setApplicationContextFactory(ApplicationContextFactory)}
 	 */
+	@Deprecated
 	public void setApplicationContextClass(Class<? extends ConfigurableApplicationContext> applicationContextClass) {
-		this.applicationContextClass = applicationContextClass;
 		this.webApplicationType = WebApplicationType.deduceFromApplicationContext(applicationContextClass);
+		this.applicationContextFactory = ApplicationContextFactory.ofContextClass(applicationContextClass);
+	}
+
+	/**
+	 * Sets the factory that will be called to create the application context. If not set,
+	 * defaults to a factory that will create
+	 * {@link AnnotationConfigServletWebServerApplicationContext} for servlet web
+	 * applications, {@link AnnotationConfigReactiveWebServerApplicationContext} for
+	 * reactive web applications, and {@link AnnotationConfigApplicationContext} for
+	 * non-web applications.
+	 * @param applicationContextFactory the factory for the context
+	 * @since 2.4.0
+	 */
+	public void setApplicationContextFactory(ApplicationContextFactory applicationContextFactory) {
+		this.applicationContextFactory = (applicationContextFactory != null) ? applicationContextFactory
+				: ApplicationContextFactory.DEFAULT;
 	}
 
 	/**

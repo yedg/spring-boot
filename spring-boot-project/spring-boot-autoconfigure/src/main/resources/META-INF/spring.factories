@@ -26,6 +26,7 @@ org.springframework.boot.autoconfigure.batch.BatchAutoConfiguration,\
 org.springframework.boot.autoconfigure.cache.CacheAutoConfiguration,\
 org.springframework.boot.autoconfigure.cassandra.CassandraAutoConfiguration,\
 org.springframework.boot.autoconfigure.context.ConfigurationPropertiesAutoConfiguration,\
+org.springframework.boot.autoconfigure.context.LifecycleAutoConfiguration,\
 org.springframework.boot.autoconfigure.context.MessageSourceAutoConfiguration,\
 org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoConfiguration,\
 org.springframework.boot.autoconfigure.couchbase.CouchbaseAutoConfiguration,\
@@ -41,7 +42,7 @@ org.springframework.boot.autoconfigure.data.couchbase.CouchbaseRepositoriesAutoC
 org.springframework.boot.autoconfigure.data.elasticsearch.ElasticsearchDataAutoConfiguration,\
 org.springframework.boot.autoconfigure.data.elasticsearch.ElasticsearchRepositoriesAutoConfiguration,\
 org.springframework.boot.autoconfigure.data.elasticsearch.ReactiveElasticsearchRepositoriesAutoConfiguration,\
-org.springframework.boot.autoconfigure.data.elasticsearch.ReactiveRestClientAutoConfiguration,\
+org.springframework.boot.autoconfigure.data.elasticsearch.ReactiveElasticsearchRestClientAutoConfiguration,\
 org.springframework.boot.autoconfigure.data.jdbc.JdbcRepositoriesAutoConfiguration,\
 org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration,\
 org.springframework.boot.autoconfigure.data.ldap.LdapRepositoriesAutoConfiguration,\
@@ -60,7 +61,7 @@ org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration
 org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration,\
 org.springframework.boot.autoconfigure.data.rest.RepositoryRestMvcAutoConfiguration,\
 org.springframework.boot.autoconfigure.data.web.SpringDataWebAutoConfiguration,\
-org.springframework.boot.autoconfigure.elasticsearch.rest.RestClientAutoConfiguration,\
+org.springframework.boot.autoconfigure.elasticsearch.ElasticsearchRestClientAutoConfiguration,\
 org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration,\
 org.springframework.boot.autoconfigure.freemarker.FreeMarkerAutoConfiguration,\
 org.springframework.boot.autoconfigure.groovy.template.GroovyTemplateAutoConfiguration,\
@@ -148,6 +149,7 @@ org.springframework.boot.autoconfigure.webservices.client.WebServiceTemplateAuto
 
 # Failure analyzers
 org.springframework.boot.diagnostics.FailureAnalyzer=\
+org.springframework.boot.autoconfigure.data.redis.RedisUrlSyntaxFailureAnalyzer,\
 org.springframework.boot.autoconfigure.diagnostics.analyzer.NoSuchBeanDefinitionFailureAnalyzer,\
 org.springframework.boot.autoconfigure.flyway.FlywayMigrationScriptMissingFailureAnalyzer,\
 org.springframework.boot.autoconfigure.jdbc.DataSourceBeanCreationFailureAnalyzer,\

@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package org.springframework.boot.env;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -27,6 +28,7 @@ import org.yaml.snakeyaml.LoaderOptions;
 import org.yaml.snakeyaml.Yaml;
 import org.yaml.snakeyaml.constructor.BaseConstructor;
 import org.yaml.snakeyaml.constructor.Constructor;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
 import org.yaml.snakeyaml.error.Mark;
 import org.yaml.snakeyaml.nodes.MappingNode;
 import org.yaml.snakeyaml.nodes.Node;
@@ -79,7 +81,16 @@ class OriginTrackedYamlLoader extends YamlProcessor {
 	/**
 	 * {@link Constructor} that tracks property origins.
 	 */
-	private class OriginTrackingConstructor extends Constructor {
+	private class OriginTrackingConstructor extends SafeConstructor {
+
+		@Override
+		public Object getData() throws NoSuchElementException {
+			Object data = super.getData();
+			if (data instanceof CharSequence && ((CharSequence) data).length() == 0) {
+				return null;
+			}
+			return data;
+		}
 
 		@Override
 		protected Object constructObject(Node node) {

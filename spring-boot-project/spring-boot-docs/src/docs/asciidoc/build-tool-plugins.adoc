@@ -51,7 +51,7 @@ You need to remember to start Ant using the `-lib` option, as shown in the follo
 
 [indent=0,subs="verbatim,quotes,attributes"]
 ----
-	$ ant -lib <folder containing spring-boot-antlib-{spring-boot-version}.jar>
+	$ ant -lib <directory containing spring-boot-antlib-{spring-boot-version}.jar>
 ----
 
 TIP: The "`Using Spring Boot`" section includes a more complete example of <<using-spring-boot.adoc#using-boot-ant, using Apache Ant with `spring-boot-antlib`>>.
@@ -68,7 +68,7 @@ Once the `spring-boot-antlib` namespace has been declared, the following additio
 
 
 [[spring-boot-ant-exejar]]
-==== `spring-boot:exejar`
+==== Using the "`exejar`" Task
 You can use the `exejar` task to create a Spring Boot executable jar.
 The following attributes are supported by the task:
 
@@ -136,7 +136,7 @@ This section shows two examples of Ant tasks.
 
 
 [[spring-boot-ant-findmainclass]]
-=== `spring-boot:findmainclass`
+=== Using the "`findmainclass`" Task
 The `findmainclass` task is used internally by `exejar` to locate a class declaring a `main`.
 If necessary, you can also use this task directly in your build.
 The following attributes are supported:

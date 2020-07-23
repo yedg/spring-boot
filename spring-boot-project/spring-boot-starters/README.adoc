@@ -4,7 +4,7 @@ Spring Boot Starters are a set of convenient dependency descriptors that you can
 in your application. You get a one-stop-shop for all the Spring and related technology
 that you need without having to hunt through sample code and copy paste loads of
 dependency descriptors. For example, if you want to get started using Spring and
-JPA for database access just include the `spring-boot-starter-data-jpa` dependency in
+JPA for database access include the `spring-boot-starter-data-jpa` dependency in
 your project, and you are good to go.
 
 For complete details see the
@@ -12,7 +12,7 @@ https://docs.spring.io/spring-boot/docs/current/reference/htmlsingle/#using-boot
 
 == Community Contributions
 If you create a starter for a technology that is not already in the standard list we can
-list it here. Just send a pull request for this page.
+list it here. To ask us to do so, please open a pull request that updates this page.
 
 WARNING: While the
 https://docs.spring.io/spring-boot/docs/current/reference/htmlsingle/#using-boot-starter[reference documentation]
@@ -22,14 +22,17 @@ do as they were designed before this was clarified.
 |===
 | Name | Location
 
-| https://camel.apache.org/spring-boot.html[Apache Camel]
-| https://github.com/apache/camel/tree/master/components/camel-spring-boot
+| https://camel.apache.org/camel-spring-boot/latest/spring-boot.html[Apache Camel]
+| https://github.com/apache/camel-spring-boot
 
 | https://cxf.apache.org/docs/springboot.html[Apache CXF]
 | https://github.com/apache/cxf
 
 | https://qpid.apache.org/components/jms/[Apache Qpid]
 | https://github.com/amqphub/amqp-10-jms-spring-boot
+
+| https://rocketmq.apache.org/[Apache RocketMQ]
+| https://github.com/ThierrySquirrel/rocketmq-spring-boot-starter
 
 | https://wicket.apache.org/[Apache Wicket]
 | https://github.com/MarcGiffing/wicket-spring-boot
@@ -95,7 +98,7 @@ do as they were designed before this was clarified.
 | https://github.com/dabla/grizzly-spring-boot-starter
 
 | https://www.grpc.io/[gRPC]
-| https://github.com/LogNet/grpc-spring-boot-starter
+| https://github.com/LogNet/grpc-spring-boot-starter & https://github.com/yidongnan/grpc-spring-boot-starter
 
 | https://ha-jdbc.github.io/[HA JDBC]
 | https://github.com/lievendoclo/hajdbc-spring-boot
@@ -132,6 +135,9 @@ do as they were designed before this was clarified.
 
 | https://logback.qos.ch/access.html[Logback-access]
 | https://github.com/akihyro/logback-access-spring-boot-starter
+
+| https://github.com/mulesoft/mule[Mule 4]
+| https://github.com/hawkore/mule4-spring-boot-starter
 
 | https://github.com/mybatis/mybatis-3[MyBatis]
 | https://github.com/mybatis/mybatis-spring-boot
@@ -219,5 +225,8 @@ do as they were designed before this was clarified.
 
 | https://alexo.github.io/wro4j/[Wro4j]
 | https://github.com/michael-simons/wro4j-spring-boot-starter
+
+| https://github.com/knowm/XChange[XChange]
+| https://github.com/cassandre-tech/cassandre-trading-bot
 
 |===

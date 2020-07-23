@@ -28,16 +28,14 @@ import reactor.core.publisher.Mono;
 import org.springframework.boot.actuate.endpoint.SecurityContext;
 import org.springframework.boot.actuate.endpoint.http.ApiVersion;
 import org.springframework.boot.actuate.endpoint.web.WebEndpointResponse;
-import org.springframework.boot.actuate.health.AbstractHealthAggregator;
 import org.springframework.boot.actuate.health.DefaultHealthContributorRegistry;
 import org.springframework.boot.actuate.health.DefaultReactiveHealthContributorRegistry;
 import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthAggregator;
 import org.springframework.boot.actuate.health.HealthComponent;
 import org.springframework.boot.actuate.health.HealthContributorRegistry;
 import org.springframework.boot.actuate.health.HealthEndpoint;
 import org.springframework.boot.actuate.health.HealthEndpointGroups;
-import org.springframework.boot.actuate.health.HealthEndpointGroupsRegistryCustomizer;
+import org.springframework.boot.actuate.health.HealthEndpointGroupsPostProcessor;
 import org.springframework.boot.actuate.health.HealthEndpointWebExtension;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.actuate.health.HttpCodeStatusMapper;
@@ -45,7 +43,6 @@ import org.springframework.boot.actuate.health.NamedContributor;
 import org.springframework.boot.actuate.health.ReactiveHealthContributorRegistry;
 import org.springframework.boot.actuate.health.ReactiveHealthEndpointWebExtension;
 import org.springframework.boot.actuate.health.ReactiveHealthIndicator;
-import org.springframework.boot.actuate.health.ReactiveHealthIndicatorRegistry;
 import org.springframework.boot.actuate.health.Status;
 import org.springframework.boot.actuate.health.StatusAggregator;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -56,6 +53,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -155,6 +153,7 @@ class HealthEndpointAutoConfigurationTests {
 	void runCreatesHealthEndpointGroups() {
 		this.contextRunner.withPropertyValues("management.endpoint.health.group.ready.include=*").run((context) -> {
 			HealthEndpointGroups groups = context.getBean(HealthEndpointGroups.class);
+			assertThat(groups).isInstanceOf(AutoConfiguredHealthEndpointGroups.class);
 			assertThat(groups.getNames()).containsOnly("ready");
 		});
 	}
@@ -281,7 +280,8 @@ class HealthEndpointAutoConfigurationTests {
 	@Test // gh-18354
 	void runCreatesLegacyHealthAggregator() {
 		this.contextRunner.run((context) -> {
-			HealthAggregator aggregator = context.getBean(HealthAggregator.class);
+			org.springframework.boot.actuate.health.HealthAggregator aggregator = context
+					.getBean(org.springframework.boot.actuate.health.HealthAggregator.class);
 			Map<String, Health> healths = new LinkedHashMap<>();
 			healths.put("one", Health.up().build());
 			healths.put("two", Health.down().build());
@@ -292,22 +292,25 @@ class HealthEndpointAutoConfigurationTests {
 
 	@Test
 	void runWhenReactorAvailableCreatesReactiveHealthIndicatorRegistryBean() {
-		this.contextRunner.run((context) -> assertThat(context).hasSingleBean(ReactiveHealthIndicatorRegistry.class));
+		this.contextRunner.run((context) -> assertThat(context)
+				.hasSingleBean(org.springframework.boot.actuate.health.ReactiveHealthIndicatorRegistry.class));
 	}
 
 	@Test // gh-18570
 	void runWhenReactorUnavailableDoesNotCreateReactiveHealthIndicatorRegistryBean() {
 		this.contextRunner.withClassLoader(new FilteredClassLoader(Mono.class.getPackage().getName()))
-				.run((context) -> assertThat(context).doesNotHaveBean(ReactiveHealthIndicatorRegistry.class));
+				.run((context) -> assertThat(context).doesNotHaveBean(
+						org.springframework.boot.actuate.health.ReactiveHealthIndicatorRegistry.class));
 	}
 
 	@Test
-	void runWhenHealthEndpointGroupsRegistryCustomizerAddsHealthEndpointGroup() {
-		this.contextRunner.withUserConfiguration(HealthEndpointGroupsRegistryCustomizerConfig.class).run((context) -> {
-			assertThat(context).hasSingleBean(HealthEndpointGroupsRegistryCustomizer.class);
-			HealthEndpointGroups groups = context.getBean(HealthEndpointGroups.class);
-			assertThat(groups.getNames()).contains("test");
-		});
+	void runWhenHasHealthEndpointGroupsPostProcessorPerformsProcessing() {
+		this.contextRunner.withPropertyValues("management.endpoint.health.group.ready.include=*").withUserConfiguration(
+				HealthEndpointGroupsConfiguration.class, TestHealthEndpointGroupsPostProcessor.class).run((context) -> {
+					HealthEndpointGroups groups = context.getBean(HealthEndpointGroups.class);
+					assertThatExceptionOfType(RuntimeException.class).isThrownBy(() -> groups.get("test"))
+							.withMessage("postprocessed");
+				});
 	}
 
 	@Configuration(proxyBeanMethods = false)
@@ -334,8 +337,8 @@ class HealthEndpointAutoConfigurationTests {
 	static class HealthAggregatorConfiguration {
 
 		@Bean
-		HealthAggregator healthAggregator() {
-			return new AbstractHealthAggregator() {
+		org.springframework.boot.actuate.health.HealthAggregator healthAggregator() {
+			return new org.springframework.boot.actuate.health.AbstractHealthAggregator() {
 
 				@Override
 				protected Status aggregateStatus(List<Status> candidates) {
@@ -429,12 +432,12 @@ class HealthEndpointAutoConfigurationTests {
 
 	}
 
-	@Configuration(proxyBeanMethods = false)
-	static class HealthEndpointGroupsRegistryCustomizerConfig {
+	static class TestHealthEndpointGroupsPostProcessor implements HealthEndpointGroupsPostProcessor {
 
-		@Bean
-		HealthEndpointGroupsRegistryCustomizer customHealthEndpointGroup() {
-			return (registry) -> registry.add("test", (configurer) -> configurer.include("ping"));
+		@Override
+		public HealthEndpointGroups postProcessHealthEndpointGroups(HealthEndpointGroups groups) {
+			given(groups.get("test")).willThrow(new RuntimeException("postprocessed"));
+			return groups;
 		}
 
 	}
