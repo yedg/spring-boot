@@ -47,7 +47,7 @@ class ConfigDataProperties {
 
 	private static final Bindable<String[]> BINDABLE_STRING_ARRAY = Bindable.of(String[].class);
 
-	private final List<String> imports;
+	private final List<ConfigDataLocation> imports;
 
 	private final Activate activate;
 
@@ -56,7 +56,12 @@ class ConfigDataProperties {
 	 * @param imports the imports requested
 	 * @param activate the activate properties
 	 */
-	ConfigDataProperties(@Name("import") List<String> imports, Activate activate) {
+	ConfigDataProperties(@Name("import") List<ConfigDataLocation> imports, Activate activate) {
+		this(imports, activate, Collections.emptyList());
+	}
+
+	private ConfigDataProperties(List<ConfigDataLocation> imports, Activate activate,
+			List<ConfigurationProperty> boundProperties) {
 		this.imports = (imports != null) ? imports : Collections.emptyList();
 		this.activate = activate;
 	}
@@ -65,7 +70,7 @@ class ConfigDataProperties {
 	 * Return any additional imports requested.
 	 * @return the requested imports
 	 */
-	List<String> getImports() {
+	List<ConfigDataLocation> getImports() {
 		return this.imports;
 	}
 
@@ -104,7 +109,8 @@ class ConfigDataProperties {
 		LegacyProfilesBindHandler legacyProfilesBindHandler = new LegacyProfilesBindHandler();
 		String[] legacyProfiles = binder.bind(LEGACY_PROFILES_NAME, BINDABLE_STRING_ARRAY, legacyProfilesBindHandler)
 				.orElse(null);
-		ConfigDataProperties properties = binder.bind(NAME, BINDABLE_PROPERTIES).orElse(null);
+		ConfigDataProperties properties = binder.bind(NAME, BINDABLE_PROPERTIES, new ConfigDataLocationBindHandler())
+				.orElse(null);
 		if (!ObjectUtils.isEmpty(legacyProfiles)) {
 			properties = (properties != null)
 					? properties.withLegacyProfiles(legacyProfiles, legacyProfilesBindHandler.getProperty())

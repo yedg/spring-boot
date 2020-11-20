@@ -32,6 +32,7 @@ import org.springframework.boot.web.error.ErrorAttributeOptions.Include;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
+import org.springframework.util.ObjectUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.ObjectError;
@@ -108,7 +109,7 @@ public class DefaultErrorAttributes implements ErrorAttributes, HandlerException
 	@Override
 	public Map<String, Object> getErrorAttributes(WebRequest webRequest, ErrorAttributeOptions options) {
 		Map<String, Object> errorAttributes = getErrorAttributes(webRequest, options.isIncluded(Include.STACK_TRACE));
-		if (this.includeException != null) {
+		if (Boolean.TRUE.equals(this.includeException)) {
 			options = options.including(Include.EXCEPTION);
 		}
 		if (!options.isIncluded(Include.EXCEPTION)) {
@@ -199,10 +200,10 @@ public class DefaultErrorAttributes implements ErrorAttributes, HandlerException
 	 */
 	protected String getMessage(WebRequest webRequest, Throwable error) {
 		Object message = getAttribute(webRequest, RequestDispatcher.ERROR_MESSAGE);
-		if (!StringUtils.isEmpty(message)) {
+		if (!ObjectUtils.isEmpty(message)) {
 			return message.toString();
 		}
-		if (error != null && !StringUtils.isEmpty(error.getMessage())) {
+		if (error != null && StringUtils.hasLength(error.getMessage())) {
 			return error.getMessage();
 		}
 		return "No message available";

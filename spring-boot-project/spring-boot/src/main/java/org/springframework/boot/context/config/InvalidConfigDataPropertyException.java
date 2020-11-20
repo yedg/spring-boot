@@ -35,8 +35,6 @@ import org.springframework.boot.context.properties.source.ConfigurationPropertyS
  */
 public class InvalidConfigDataPropertyException extends ConfigDataException {
 
-	private static final Map<ConfigurationPropertyName, ConfigurationPropertyName> ERROR = Collections.emptyMap();
-
 	private static final Map<ConfigurationPropertyName, ConfigurationPropertyName> WARNING;
 	static {
 		Map<ConfigurationPropertyName, ConfigurationPropertyName> warning = new LinkedHashMap<>();
@@ -49,10 +47,10 @@ public class InvalidConfigDataPropertyException extends ConfigDataException {
 
 	private final ConfigurationPropertyName replacement;
 
-	private final ConfigDataLocation location;
+	private final ConfigDataResource location;
 
 	InvalidConfigDataPropertyException(ConfigurationProperty property, ConfigurationPropertyName replacement,
-			ConfigDataLocation location) {
+			ConfigDataResource location) {
 		super(getMessage(property, replacement, location), null);
 		this.property = property;
 		this.replacement = replacement;
@@ -68,11 +66,11 @@ public class InvalidConfigDataPropertyException extends ConfigDataException {
 	}
 
 	/**
-	 * Return the {@link ConfigDataLocation} of the invalid property or {@code null} if
+	 * Return the {@link ConfigDataResource} of the invalid property or {@code null} if
 	 * the source was not loaded from {@link ConfigData}.
 	 * @return the config data location or {@code null}
 	 */
-	public ConfigDataLocation getLocation() {
+	public ConfigDataResource getLocation() {
 		return this.location;
 	}
 
@@ -86,31 +84,27 @@ public class InvalidConfigDataPropertyException extends ConfigDataException {
 	}
 
 	/**
-	 * Throw a {@link InvalidConfigDataPropertyException} if the given
-	 * {@link ConfigDataEnvironmentContributor} contains any invalid property.
+	 * Throw a {@link InvalidConfigDataPropertyException} or log a warning if the given
+	 * {@link ConfigDataEnvironmentContributor} contains any invalid property. A warning
+	 * is logged if the property is still supported, but not recommended. An error is
+	 * thrown if the property is completely unsupported.
 	 * @param logger the logger to use for warnings
 	 * @param contributor the contributor to check
 	 */
 	static void throwOrWarn(Log logger, ConfigDataEnvironmentContributor contributor) {
 		ConfigurationPropertySource propertySource = contributor.getConfigurationPropertySource();
 		if (propertySource != null) {
-			ERROR.forEach((invalid, replacement) -> {
-				ConfigurationProperty property = propertySource.getConfigurationProperty(invalid);
-				if (property != null) {
-					throw new InvalidConfigDataPropertyException(property, replacement, contributor.getLocation());
-				}
-			});
 			WARNING.forEach((invalid, replacement) -> {
 				ConfigurationProperty property = propertySource.getConfigurationProperty(invalid);
 				if (property != null) {
-					logger.warn(getMessage(property, replacement, contributor.getLocation()));
+					logger.warn(getMessage(property, replacement, contributor.getResource()));
 				}
 			});
 		}
 	}
 
 	private static String getMessage(ConfigurationProperty property, ConfigurationPropertyName replacement,
-			ConfigDataLocation location) {
+			ConfigDataResource location) {
 		StringBuilder message = new StringBuilder("Property '");
 		message.append(property.getName());
 		if (location != null) {

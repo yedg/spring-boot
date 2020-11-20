@@ -19,15 +19,19 @@ package org.springframework.boot.context.config;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.apache.commons.logging.Log;
 
+import org.springframework.boot.BootstrapContext;
+import org.springframework.boot.BootstrapRegistry;
+import org.springframework.boot.ConfigurableBootstrapContext;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.logging.DeferredLogFactory;
+import org.springframework.boot.util.Instantiator;
 import org.springframework.core.env.Environment;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.core.io.support.SpringFactoriesLoader;
-import org.springframework.util.StringUtils;
 
 /**
  * A collection of {@link ConfigDataLocationResolver} instances loaded via
@@ -43,38 +47,44 @@ class ConfigDataLocationResolvers {
 	/**
 	 * Create a new {@link ConfigDataLocationResolvers} instance.
 	 * @param logFactory a {@link DeferredLogFactory} used to inject {@link Log} instances
+	 * @param bootstrapContext the bootstrap context
 	 * @param binder a binder providing values from the initial {@link Environment}
 	 * @param resourceLoader {@link ResourceLoader} to load resource locations
 	 */
-	ConfigDataLocationResolvers(DeferredLogFactory logFactory, Binder binder, ResourceLoader resourceLoader) {
-		this(logFactory, binder, resourceLoader,
+	ConfigDataLocationResolvers(DeferredLogFactory logFactory, ConfigurableBootstrapContext bootstrapContext,
+			Binder binder, ResourceLoader resourceLoader) {
+		this(logFactory, bootstrapContext, binder, resourceLoader,
 				SpringFactoriesLoader.loadFactoryNames(ConfigDataLocationResolver.class, null));
 	}
 
 	/**
 	 * Create a new {@link ConfigDataLocationResolvers} instance.
 	 * @param logFactory a {@link DeferredLogFactory} used to inject {@link Log} instances
+	 * @param bootstrapContext the bootstrap context
 	 * @param binder {@link Binder} providing values from the initial {@link Environment}
 	 * @param resourceLoader {@link ResourceLoader} to load resource locations
 	 * @param names the {@link ConfigDataLocationResolver} class names
 	 */
-	ConfigDataLocationResolvers(DeferredLogFactory logFactory, Binder binder, ResourceLoader resourceLoader,
-			List<String> names) {
+	ConfigDataLocationResolvers(DeferredLogFactory logFactory, ConfigurableBootstrapContext bootstrapContext,
+			Binder binder, ResourceLoader resourceLoader, List<String> names) {
 		Instantiator<ConfigDataLocationResolver<?>> instantiator = new Instantiator<>(ConfigDataLocationResolver.class,
 				(availableParameters) -> {
 					availableParameters.add(Log.class, logFactory::getLog);
 					availableParameters.add(Binder.class, binder);
 					availableParameters.add(ResourceLoader.class, resourceLoader);
+					availableParameters.add(ConfigurableBootstrapContext.class, bootstrapContext);
+					availableParameters.add(BootstrapContext.class, bootstrapContext);
+					availableParameters.add(BootstrapRegistry.class, bootstrapContext);
 				});
 		this.resolvers = reorder(instantiator.instantiate(names));
 	}
 
 	private List<ConfigDataLocationResolver<?>> reorder(List<ConfigDataLocationResolver<?>> resolvers) {
 		List<ConfigDataLocationResolver<?>> reordered = new ArrayList<>(resolvers.size());
-		ResourceConfigDataLocationResolver resourceResolver = null;
+		StandardConfigDataLocationResolver resourceResolver = null;
 		for (ConfigDataLocationResolver<?> resolver : resolvers) {
-			if (resolver instanceof ResourceConfigDataLocationResolver) {
-				resourceResolver = (ResourceConfigDataLocationResolver) resolver;
+			if (resolver instanceof StandardConfigDataLocationResolver) {
+				resourceResolver = (StandardConfigDataLocationResolver) resolver;
 			}
 			else {
 				reordered.add(resolver);
@@ -86,26 +96,9 @@ class ConfigDataLocationResolvers {
 		return Collections.unmodifiableList(reordered);
 	}
 
-	/**
-	 * Resolve all location strings using the most appropriate
-	 * {@link ConfigDataLocationResolver}.
-	 * @param context the location resolver context
-	 * @param locations the locations to resolve
-	 * @param profiles the current profiles or {@code null}
-	 * @return the resolved locations
-	 */
-	List<ConfigDataLocation> resolveAll(ConfigDataLocationResolverContext context, List<String> locations,
+	List<ConfigDataResolutionResult> resolve(ConfigDataLocationResolverContext context, ConfigDataLocation location,
 			Profiles profiles) {
-		List<ConfigDataLocation> resolved = new ArrayList<>(locations.size());
-		for (String location : locations) {
-			resolved.addAll(resolveAll(context, location, profiles));
-		}
-		return resolved;
-	}
-
-	private List<ConfigDataLocation> resolveAll(ConfigDataLocationResolverContext context, String location,
-			Profiles profiles) {
-		if (!StringUtils.hasText(location)) {
+		if (location == null) {
 			return Collections.emptyList();
 		}
 		for (ConfigDataLocationResolver<?> resolver : getResolvers()) {
@@ -116,15 +109,25 @@ class ConfigDataLocationResolvers {
 		throw new UnsupportedConfigDataLocationException(location);
 	}
 
-	private List<ConfigDataLocation> resolve(ConfigDataLocationResolver<?> resolver,
-			ConfigDataLocationResolverContext context, String location, Profiles profiles) {
-		List<ConfigDataLocation> resolved = nonNullList(resolver.resolve(context, location));
+	private List<ConfigDataResolutionResult> resolve(ConfigDataLocationResolver<?> resolver,
+			ConfigDataLocationResolverContext context, ConfigDataLocation location, Profiles profiles) {
+		List<ConfigDataResolutionResult> resolved = resolve(location, () -> resolver.resolve(context, location));
 		if (profiles == null) {
 			return resolved;
 		}
-		List<ConfigDataLocation> profileSpecific = nonNullList(
-				resolver.resolveProfileSpecific(context, location, profiles));
+		List<ConfigDataResolutionResult> profileSpecific = resolve(location,
+				() -> resolver.resolveProfileSpecific(context, location, profiles));
 		return merge(resolved, profileSpecific);
+	}
+
+	private List<ConfigDataResolutionResult> resolve(ConfigDataLocation location,
+			Supplier<List<? extends ConfigDataResource>> resolveAction) {
+		List<ConfigDataResource> resources = nonNullList(resolveAction.get());
+		List<ConfigDataResolutionResult> resolved = new ArrayList<>(resources.size());
+		for (ConfigDataResource resource : resources) {
+			resolved.add(new ConfigDataResolutionResult(location, resource));
+		}
+		return resolved;
 	}
 
 	@SuppressWarnings("unchecked")

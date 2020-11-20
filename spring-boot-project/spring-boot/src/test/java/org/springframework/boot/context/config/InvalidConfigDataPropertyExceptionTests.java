@@ -38,19 +38,19 @@ import static org.mockito.Mockito.verify;
  */
 class InvalidConfigDataPropertyExceptionTests {
 
-	private ConfigDataLocation location = new TestConfigDataLocation();
+	private ConfigDataResource resource = new TestConfigDataResource();
 
 	private ConfigurationPropertyName replacement = ConfigurationPropertyName.of("replacement");
 
-	private ConfigurationPropertyName invaid = ConfigurationPropertyName.of("invalid");
+	private ConfigurationPropertyName invalid = ConfigurationPropertyName.of("invalid");
 
-	private ConfigurationProperty property = new ConfigurationProperty(this.invaid, "bad", MockOrigin.of("origin"));
+	private ConfigurationProperty property = new ConfigurationProperty(this.invalid, "bad", MockOrigin.of("origin"));
 
 	private Log logger = mock(Log.class);
 
 	@Test
 	void createHasCorrectMessage() {
-		assertThat(new InvalidConfigDataPropertyException(this.property, this.replacement, this.location)).hasMessage(
+		assertThat(new InvalidConfigDataPropertyException(this.property, this.replacement, this.resource)).hasMessage(
 				"Property 'invalid' imported from location 'test' is invalid and should be replaced with 'replacement' [origin: origin]");
 	}
 
@@ -62,40 +62,40 @@ class InvalidConfigDataPropertyExceptionTests {
 
 	@Test
 	void createWhenNoReplacementHasCorrectMessage() {
-		assertThat(new InvalidConfigDataPropertyException(this.property, null, this.location))
+		assertThat(new InvalidConfigDataPropertyException(this.property, null, this.resource))
 				.hasMessage("Property 'invalid' imported from location 'test' is invalid [origin: origin]");
 	}
 
 	@Test
 	void createWhenNoOriginHasCorrectMessage() {
-		ConfigurationProperty property = new ConfigurationProperty(this.invaid, "bad", null);
-		assertThat(new InvalidConfigDataPropertyException(property, this.replacement, this.location)).hasMessage(
+		ConfigurationProperty property = new ConfigurationProperty(this.invalid, "bad", null);
+		assertThat(new InvalidConfigDataPropertyException(property, this.replacement, this.resource)).hasMessage(
 				"Property 'invalid' imported from location 'test' is invalid and should be replaced with 'replacement'");
 	}
 
 	@Test
 	void getPropertyReturnsProperty() {
 		InvalidConfigDataPropertyException exception = new InvalidConfigDataPropertyException(this.property,
-				this.replacement, this.location);
+				this.replacement, this.resource);
 		assertThat(exception.getProperty()).isEqualTo(this.property);
 	}
 
 	@Test
 	void getLocationReturnsLocation() {
 		InvalidConfigDataPropertyException exception = new InvalidConfigDataPropertyException(this.property,
-				this.replacement, this.location);
-		assertThat(exception.getLocation()).isEqualTo(this.location);
+				this.replacement, this.resource);
+		assertThat(exception.getLocation()).isEqualTo(this.resource);
 	}
 
 	@Test
 	void getReplacementReturnsReplacement() {
 		InvalidConfigDataPropertyException exception = new InvalidConfigDataPropertyException(this.property,
-				this.replacement, this.location);
+				this.replacement, this.resource);
 		assertThat(exception.getReplacement()).isEqualTo(this.replacement);
 	}
 
 	@Test
-	@Disabled("Disabled until spring.profiles suppport is dropped")
+	@Disabled("Disabled until spring.profiles support is dropped")
 	void throwOrWarnWhenHasInvalidPropertyThrowsException() {
 		MockPropertySource propertySource = new MockPropertySource();
 		propertySource.setProperty("spring.profiles", "a");
@@ -123,7 +123,7 @@ class InvalidConfigDataPropertyExceptionTests {
 				+ "'spring.config.activate.on-profile' [origin: \"spring.profiles\" from property source \"mockProperties\"]");
 	}
 
-	private static class TestConfigDataLocation extends ConfigDataLocation {
+	private static class TestConfigDataResource extends ConfigDataResource {
 
 		@Override
 		public String toString() {

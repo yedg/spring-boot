@@ -220,7 +220,7 @@
       "defaultValue": true
     },
     {
-      "name": "management.health.readynessstate.enabled",
+      "name": "management.health.readinessstate.enabled",
       "type": "java.lang.Boolean",
       "description": "Whether to enable readiness state health check.",
       "defaultValue": false
@@ -344,6 +344,12 @@
       "deprecation": {
         "level": "error"
       }
+    },
+    {
+      "name": "management.metrics.export.defaults.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether to enable default metrics exporters.",
+      "defaultValue": true
     },
     {
       "name": "management.metrics.export.dynatrace.num-threads",
@@ -647,7 +653,6 @@
       "defaultValue": [
         "request-headers",
         "response-headers",
-        "cookies",
         "errors"
       ]
     },

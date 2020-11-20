@@ -24,12 +24,18 @@ import java.util.function.Supplier;
 import org.apache.commons.logging.Log;
 import org.junit.jupiter.api.Test;
 
+import org.springframework.boot.BootstrapContext;
+import org.springframework.boot.BootstrapRegistry;
+import org.springframework.boot.BootstrapRegistry.InstanceSupplier;
+import org.springframework.boot.ConfigurableBootstrapContext;
+import org.springframework.boot.DefaultBootstrapContext;
 import org.springframework.boot.logging.DeferredLogFactory;
 import org.springframework.core.env.PropertySource;
 import org.springframework.mock.env.MockPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
+import static org.mockito.Mockito.mock;
 
 /**
  * Tests for {@link ConfigDataLoaders}.
@@ -41,44 +47,56 @@ class ConfigDataLoadersTests {
 
 	private DeferredLogFactory logFactory = Supplier::get;
 
+	private DefaultBootstrapContext bootstrapContext = new DefaultBootstrapContext();
+
+	private ConfigDataLoaderContext context = mock(ConfigDataLoaderContext.class);
+
 	@Test
 	void createWhenLoaderHasLogParameterInjectsLog() {
-		new ConfigDataLoaders(this.logFactory, Arrays.asList(LoggingConfigDataLoader.class.getName()));
+		new ConfigDataLoaders(this.logFactory, this.bootstrapContext,
+				Arrays.asList(LoggingConfigDataLoader.class.getName()));
+	}
+
+	@Test
+	void createWhenLoaderHasBootstrapParametersInjectsBootstrapContext() {
+		new ConfigDataLoaders(this.logFactory, this.bootstrapContext,
+				Arrays.asList(BootstrappingConfigDataLoader.class.getName()));
+		assertThat(this.bootstrapContext.get(String.class)).isEqualTo("boot");
 	}
 
 	@Test
 	void loadWhenSingleLoaderSupportsLocationReturnsLoadedConfigData() throws Exception {
-		TestConfigDataLocation location = new TestConfigDataLocation("test");
-		ConfigDataLoaders loaders = new ConfigDataLoaders(this.logFactory,
+		TestConfigDataResource location = new TestConfigDataResource("test");
+		ConfigDataLoaders loaders = new ConfigDataLoaders(this.logFactory, this.bootstrapContext,
 				Arrays.asList(TestConfigDataLoader.class.getName()));
-		ConfigData loaded = loaders.load(location);
+		ConfigData loaded = loaders.load(this.context, location);
 		assertThat(getLoader(loaded)).isInstanceOf(TestConfigDataLoader.class);
 	}
 
 	@Test
 	void loadWhenMultipleLoadersSupportLocationThrowsException() throws Exception {
-		TestConfigDataLocation location = new TestConfigDataLocation("test");
-		ConfigDataLoaders loaders = new ConfigDataLoaders(this.logFactory,
+		TestConfigDataResource location = new TestConfigDataResource("test");
+		ConfigDataLoaders loaders = new ConfigDataLoaders(this.logFactory, this.bootstrapContext,
 				Arrays.asList(LoggingConfigDataLoader.class.getName(), TestConfigDataLoader.class.getName()));
-		assertThatIllegalStateException().isThrownBy(() -> loaders.load(location))
-				.withMessageContaining("Multiple loaders found for location test");
+		assertThatIllegalStateException().isThrownBy(() -> loaders.load(this.context, location))
+				.withMessageContaining("Multiple loaders found for resource 'test'");
 	}
 
 	@Test
 	void loadWhenNoLoaderSupportsLocationThrowsException() {
-		TestConfigDataLocation location = new TestConfigDataLocation("test");
-		ConfigDataLoaders loaders = new ConfigDataLoaders(this.logFactory,
+		TestConfigDataResource location = new TestConfigDataResource("test");
+		ConfigDataLoaders loaders = new ConfigDataLoaders(this.logFactory, this.bootstrapContext,
 				Arrays.asList(NonLoadableConfigDataLoader.class.getName()));
-		assertThatIllegalStateException().isThrownBy(() -> loaders.load(location))
-				.withMessage("No loader found for location 'test'");
+		assertThatIllegalStateException().isThrownBy(() -> loaders.load(this.context, location))
+				.withMessage("No loader found for resource 'test'");
 	}
 
 	@Test
 	void loadWhenGenericTypeDoesNotMatchSkipsLoader() throws Exception {
-		TestConfigDataLocation location = new TestConfigDataLocation("test");
-		ConfigDataLoaders loaders = new ConfigDataLoaders(this.logFactory,
+		TestConfigDataResource location = new TestConfigDataResource("test");
+		ConfigDataLoaders loaders = new ConfigDataLoaders(this.logFactory, this.bootstrapContext,
 				Arrays.asList(OtherConfigDataLoader.class.getName(), SpecificConfigDataLoader.class.getName()));
-		ConfigData loaded = loaders.load(location);
+		ConfigData loaded = loaders.load(this.context, location);
 		assertThat(getLoader(loaded)).isInstanceOf(SpecificConfigDataLoader.class);
 	}
 
@@ -86,20 +104,19 @@ class ConfigDataLoadersTests {
 		return (ConfigDataLoader<?>) loaded.getPropertySources().get(0).getProperty("loader");
 	}
 
-	private static ConfigData createConfigData(ConfigDataLoader<?> loader, ConfigDataLocation location) {
+	private static ConfigData createConfigData(ConfigDataLoader<?> loader, ConfigDataResource resource) {
 		MockPropertySource propertySource = new MockPropertySource();
 		propertySource.setProperty("loader", loader);
-		propertySource.setProperty("location", location);
+		propertySource.setProperty("resource", resource);
 		List<PropertySource<?>> propertySources = Arrays.asList(propertySource);
 		return new ConfigData(propertySources);
-
 	}
 
-	static class TestConfigDataLocation extends ConfigDataLocation {
+	static class TestConfigDataResource extends ConfigDataResource {
 
 		private final String value;
 
-		TestConfigDataLocation(String value) {
+		TestConfigDataResource(String value) {
 			this.value = value;
 		}
 
@@ -110,28 +127,46 @@ class ConfigDataLoadersTests {
 
 	}
 
-	static class OtherConfigDataLocation extends ConfigDataLocation {
+	static class OtherConfigDataResource extends ConfigDataResource {
 
 	}
 
-	static class LoggingConfigDataLoader implements ConfigDataLoader<ConfigDataLocation> {
+	static class LoggingConfigDataLoader implements ConfigDataLoader<ConfigDataResource> {
 
 		LoggingConfigDataLoader(Log log) {
 			assertThat(log).isNotNull();
 		}
 
 		@Override
-		public ConfigData load(ConfigDataLocation location) throws IOException {
+		public ConfigData load(ConfigDataLoaderContext context, ConfigDataResource resource) throws IOException {
 			throw new AssertionError("Unexpected call");
 		}
 
 	}
 
-	static class TestConfigDataLoader implements ConfigDataLoader<ConfigDataLocation> {
+	static class BootstrappingConfigDataLoader implements ConfigDataLoader<ConfigDataResource> {
+
+		BootstrappingConfigDataLoader(ConfigurableBootstrapContext configurableBootstrapContext,
+				BootstrapRegistry bootstrapRegistry, BootstrapContext bootstrapContext) {
+			assertThat(configurableBootstrapContext).isNotNull();
+			assertThat(bootstrapRegistry).isNotNull();
+			assertThat(bootstrapContext).isNotNull();
+			assertThat(configurableBootstrapContext).isEqualTo(bootstrapRegistry).isEqualTo(bootstrapContext);
+			bootstrapRegistry.register(String.class, InstanceSupplier.of("boot"));
+		}
 
 		@Override
-		public ConfigData load(ConfigDataLocation location) throws IOException {
-			return createConfigData(this, location);
+		public ConfigData load(ConfigDataLoaderContext context, ConfigDataResource resource) throws IOException {
+			throw new AssertionError("Unexpected call");
+		}
+
+	}
+
+	static class TestConfigDataLoader implements ConfigDataLoader<ConfigDataResource> {
+
+		@Override
+		public ConfigData load(ConfigDataLoaderContext context, ConfigDataResource resource) throws IOException {
+			return createConfigData(this, resource);
 		}
 
 	}
@@ -139,25 +174,25 @@ class ConfigDataLoadersTests {
 	static class NonLoadableConfigDataLoader extends TestConfigDataLoader {
 
 		@Override
-		public boolean isLoadable(ConfigDataLocation location) {
+		public boolean isLoadable(ConfigDataLoaderContext context, ConfigDataResource resource) {
 			return false;
 		}
 
 	}
 
-	static class SpecificConfigDataLoader implements ConfigDataLoader<TestConfigDataLocation> {
+	static class SpecificConfigDataLoader implements ConfigDataLoader<TestConfigDataResource> {
 
 		@Override
-		public ConfigData load(TestConfigDataLocation location) throws IOException {
+		public ConfigData load(ConfigDataLoaderContext context, TestConfigDataResource location) throws IOException {
 			return createConfigData(this, location);
 		}
 
 	}
 
-	static class OtherConfigDataLoader implements ConfigDataLoader<OtherConfigDataLocation> {
+	static class OtherConfigDataLoader implements ConfigDataLoader<OtherConfigDataResource> {
 
 		@Override
-		public ConfigData load(OtherConfigDataLocation location) throws IOException {
+		public ConfigData load(ConfigDataLoaderContext context, OtherConfigDataResource location) throws IOException {
 			return createConfigData(this, location);
 		}
 

@@ -16,10 +16,15 @@
 
 package org.springframework.boot.context.config;
 
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
+import java.util.function.Supplier;
 
 import org.apache.commons.logging.Log;
 
+import org.springframework.boot.ConfigurableBootstrapContext;
+import org.springframework.boot.DefaultBootstrapContext;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.env.EnvironmentPostProcessor;
 import org.springframework.boot.logging.DeferredLogFactory;
@@ -45,13 +50,24 @@ public class ConfigDataEnvironmentPostProcessor implements EnvironmentPostProces
 	 */
 	public static final int ORDER = Ordered.HIGHEST_PRECEDENCE + 10;
 
+	/**
+	 * Property used to determine what action to take when a
+	 * {@code ConfigDataLocationNotFoundException} is thrown.
+	 * @see ConfigDataNotFoundAction
+	 */
+	public static final String ON_LOCATION_NOT_FOUND_PROPERTY = ConfigDataEnvironment.ON_NOT_FOUND_PROPERTY;
+
 	private final DeferredLogFactory logFactory;
 
 	private final Log logger;
 
-	public ConfigDataEnvironmentPostProcessor(DeferredLogFactory logFactory) {
+	private final ConfigurableBootstrapContext bootstrapContext;
+
+	public ConfigDataEnvironmentPostProcessor(DeferredLogFactory logFactory,
+			ConfigurableBootstrapContext bootstrapContext) {
 		this.logFactory = logFactory;
 		this.logger = logFactory.getLog(getClass());
+		this.bootstrapContext = bootstrapContext;
 	}
 
 	@Override
@@ -61,10 +77,10 @@ public class ConfigDataEnvironmentPostProcessor implements EnvironmentPostProces
 
 	@Override
 	public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
-		addPropertySources(environment, application.getResourceLoader(), application.getAdditionalProfiles());
+		postProcessEnvironment(environment, application.getResourceLoader(), application.getAdditionalProfiles());
 	}
 
-	protected final void addPropertySources(ConfigurableEnvironment environment, ResourceLoader resourceLoader,
+	void postProcessEnvironment(ConfigurableEnvironment environment, ResourceLoader resourceLoader,
 			Collection<String> additionalProfiles) {
 		try {
 			this.logger.trace("Post-processing environment to add config data");
@@ -80,7 +96,8 @@ public class ConfigDataEnvironmentPostProcessor implements EnvironmentPostProces
 
 	ConfigDataEnvironment getConfigDataEnvironment(ConfigurableEnvironment environment, ResourceLoader resourceLoader,
 			Collection<String> additionalProfiles) {
-		return new ConfigDataEnvironment(this.logFactory, environment, resourceLoader, additionalProfiles);
+		return new ConfigDataEnvironment(this.logFactory, this.bootstrapContext, environment, resourceLoader,
+				additionalProfiles);
 	}
 
 	private void postProcessUsingLegacyApplicationListener(ConfigurableEnvironment environment,
@@ -91,6 +108,50 @@ public class ConfigDataEnvironmentPostProcessor implements EnvironmentPostProces
 	@SuppressWarnings("deprecation")
 	LegacyConfigFileApplicationListener getLegacyListener() {
 		return new LegacyConfigFileApplicationListener(this.logFactory.getLog(ConfigFileApplicationListener.class));
+	}
+
+	/**
+	 * Apply {@link ConfigData} post-processing to an existing {@link Environment}. This
+	 * method can be useful when working with an {@link Environment} that has been created
+	 * directly and not necessarily as part of a {@link SpringApplication}.
+	 * @param environment the environment to apply {@link ConfigData} to
+	 */
+	public static void applyTo(ConfigurableEnvironment environment) {
+		applyTo(environment, null, null, Collections.emptyList());
+	}
+
+	/**
+	 * Apply {@link ConfigData} post-processing to an existing {@link Environment}. This
+	 * method can be useful when working with an {@link Environment} that has been created
+	 * directly and not necessarily as part of a {@link SpringApplication}.
+	 * @param environment the environment to apply {@link ConfigData} to
+	 * @param resourceLoader the resource loader to use
+	 * @param bootstrapContext the bootstrap context to use or {@code null} to use a
+	 * throw-away context
+	 * @param additionalProfiles any additional profiles that should be applied
+	 */
+	public static void applyTo(ConfigurableEnvironment environment, ResourceLoader resourceLoader,
+			ConfigurableBootstrapContext bootstrapContext, String... additionalProfiles) {
+		applyTo(environment, resourceLoader, bootstrapContext, Arrays.asList(additionalProfiles));
+	}
+
+	/**
+	 * Apply {@link ConfigData} post-processing to an existing {@link Environment}. This
+	 * method can be useful when working with an {@link Environment} that has been created
+	 * directly and not necessarily as part of a {@link SpringApplication}.
+	 * @param environment the environment to apply {@link ConfigData} to
+	 * @param resourceLoader the resource loader to use
+	 * @param bootstrapContext the bootstrap context to use or {@code null} to use a
+	 * throw-away context
+	 * @param additionalProfiles any additional profiles that should be applied
+	 */
+	public static void applyTo(ConfigurableEnvironment environment, ResourceLoader resourceLoader,
+			ConfigurableBootstrapContext bootstrapContext, Collection<String> additionalProfiles) {
+		DeferredLogFactory logFactory = Supplier::get;
+		bootstrapContext = (bootstrapContext != null) ? bootstrapContext : new DefaultBootstrapContext();
+		ConfigDataEnvironmentPostProcessor postProcessor = new ConfigDataEnvironmentPostProcessor(logFactory,
+				bootstrapContext);
+		postProcessor.postProcessEnvironment(environment, resourceLoader, additionalProfiles);
 	}
 
 	@SuppressWarnings("deprecation")

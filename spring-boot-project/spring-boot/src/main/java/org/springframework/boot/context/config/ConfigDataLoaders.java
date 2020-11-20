@@ -23,7 +23,11 @@ import java.util.List;
 
 import org.apache.commons.logging.Log;
 
+import org.springframework.boot.BootstrapContext;
+import org.springframework.boot.BootstrapRegistry;
+import org.springframework.boot.ConfigurableBootstrapContext;
 import org.springframework.boot.logging.DeferredLogFactory;
+import org.springframework.boot.util.Instantiator;
 import org.springframework.core.ResolvableType;
 import org.springframework.core.io.support.SpringFactoriesLoader;
 import org.springframework.core.log.LogMessage;
@@ -41,71 +45,80 @@ class ConfigDataLoaders {
 
 	private final List<ConfigDataLoader<?>> loaders;
 
-	private final List<Class<?>> locationTypes;
+	private final List<Class<?>> resourceTypes;
 
 	/**
 	 * Create a new {@link ConfigDataLoaders} instance.
 	 * @param logFactory the deferred log factory
+	 * @param bootstrapContext the bootstrap context
 	 */
-	ConfigDataLoaders(DeferredLogFactory logFactory) {
-		this(logFactory, SpringFactoriesLoader.loadFactoryNames(ConfigDataLoader.class, null));
+	ConfigDataLoaders(DeferredLogFactory logFactory, ConfigurableBootstrapContext bootstrapContext) {
+		this(logFactory, bootstrapContext, SpringFactoriesLoader.loadFactoryNames(ConfigDataLoader.class, null));
 	}
 
 	/**
 	 * Create a new {@link ConfigDataLoaders} instance.
 	 * @param logFactory the deferred log factory
+	 * @param bootstrapContext the bootstrap context
 	 * @param names the {@link ConfigDataLoader} class names instantiate
 	 */
-	ConfigDataLoaders(DeferredLogFactory logFactory, List<String> names) {
+	ConfigDataLoaders(DeferredLogFactory logFactory, ConfigurableBootstrapContext bootstrapContext,
+			List<String> names) {
 		this.logger = logFactory.getLog(getClass());
 		Instantiator<ConfigDataLoader<?>> instantiator = new Instantiator<>(ConfigDataLoader.class,
-				(availableParameters) -> availableParameters.add(Log.class, logFactory::getLog));
+				(availableParameters) -> {
+					availableParameters.add(Log.class, logFactory::getLog);
+					availableParameters.add(ConfigurableBootstrapContext.class, bootstrapContext);
+					availableParameters.add(BootstrapContext.class, bootstrapContext);
+					availableParameters.add(BootstrapRegistry.class, bootstrapContext);
+				});
 		this.loaders = instantiator.instantiate(names);
-		this.locationTypes = getLocationTypes(this.loaders);
+		this.resourceTypes = getResourceTypes(this.loaders);
 	}
 
-	private List<Class<?>> getLocationTypes(List<ConfigDataLoader<?>> loaders) {
-		List<Class<?>> locationTypes = new ArrayList<>(loaders.size());
+	private List<Class<?>> getResourceTypes(List<ConfigDataLoader<?>> loaders) {
+		List<Class<?>> resourceTypes = new ArrayList<>(loaders.size());
 		for (ConfigDataLoader<?> loader : loaders) {
-			locationTypes.add(getLocationType(loader));
+			resourceTypes.add(getResourceType(loader));
 		}
-		return Collections.unmodifiableList(locationTypes);
+		return Collections.unmodifiableList(resourceTypes);
 	}
 
-	private Class<?> getLocationType(ConfigDataLoader<?> loader) {
+	private Class<?> getResourceType(ConfigDataLoader<?> loader) {
 		return ResolvableType.forClass(loader.getClass()).as(ConfigDataLoader.class).resolveGeneric();
 	}
 
 	/**
 	 * Load {@link ConfigData} using the first appropriate {@link ConfigDataLoader}.
-	 * @param <L> the condig data location type
-	 * @param location the location to load
+	 * @param <R> the resource type
+	 * @param context the loader context
+	 * @param resource the resource to load
 	 * @return the loaded {@link ConfigData}
 	 * @throws IOException on IO error
 	 */
-	<L extends ConfigDataLocation> ConfigData load(L location) throws IOException {
-		ConfigDataLoader<L> loader = getLoader(location);
-		this.logger.trace(LogMessage.of(() -> "Loading " + location + " using loader " + loader.getClass().getName()));
-		return loader.load(location);
+	<R extends ConfigDataResource> ConfigData load(ConfigDataLoaderContext context, R resource) throws IOException {
+		ConfigDataLoader<R> loader = getLoader(context, resource);
+		this.logger.trace(LogMessage.of(() -> "Loading " + resource + " using loader " + loader.getClass().getName()));
+		return loader.load(context, resource);
 	}
 
 	@SuppressWarnings("unchecked")
-	private <L extends ConfigDataLocation> ConfigDataLoader<L> getLoader(L location) {
-		ConfigDataLoader<L> result = null;
+	private <R extends ConfigDataResource> ConfigDataLoader<R> getLoader(ConfigDataLoaderContext context, R resource) {
+		ConfigDataLoader<R> result = null;
 		for (int i = 0; i < this.loaders.size(); i++) {
 			ConfigDataLoader<?> candidate = this.loaders.get(i);
-			if (this.locationTypes.get(i).isInstance(location)) {
-				ConfigDataLoader<L> loader = (ConfigDataLoader<L>) candidate;
-				if (loader.isLoadable(location)) {
+			if (this.resourceTypes.get(i).isInstance(resource)) {
+				ConfigDataLoader<R> loader = (ConfigDataLoader<R>) candidate;
+				if (loader.isLoadable(context, resource)) {
 					if (result != null) {
-						throw new IllegalStateException("Multiple loaders found for location " + location + " ["
+						throw new IllegalStateException("Multiple loaders found for resource '" + resource + "' ["
 								+ candidate.getClass().getName() + "," + result.getClass().getName() + "]");
 					}
 					result = loader;
 				}
 			}
 		}
-		Assert.state(result != null, "No loader found for location '" + location + "'");
+		Assert.state(result != null, () -> "No loader found for resource '" + resource + "'");
 		return result;
 	}
 
