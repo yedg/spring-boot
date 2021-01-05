@@ -864,7 +864,7 @@ Finally, access logging for Jetty can also be configured as follows:
 ----
 
 By default, logs are redirected to `System.err`.
-For more details, see {jetty-docs}/configuring-jetty-request-logs.html[the Jetty documentation].
+For more details, see the Jetty documentation.
 
 
 
@@ -2434,19 +2434,15 @@ You can switch on the valve by adding some entries to `application.properties`, 
 (The presence of either of those properties switches on the valve.
 Alternatively, you can add the `RemoteIpValve` by adding a `TomcatServletWebServerFactory` bean.)
 
-To configure Spring Security to require a secure channel for all (or some) requests, consider adding your own `WebSecurityConfigurerAdapter` that adds the following `HttpSecurity` configuration:
+To configure Spring Security to require a secure channel for all (or some) requests, consider adding your own `SecurityFilterChain` bean that adds the following `HttpSecurity` configuration:
 
 [source,java,indent=0,subs="verbatim,quotes,attributes"]
 ----
-	@Configuration(proxyBeanMethods = false)
-	public class SslWebSecurityConfigurerAdapter extends WebSecurityConfigurerAdapter {
-
-		@Override
-		protected void configure(HttpSecurity http) throws Exception {
-			// Customize the application security
-			http.requiresChannel().anyRequest().requiresSecure();
-		}
-
+	@Bean
+	public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+		// Customize the application security
+		http.requiresChannel().anyRequest().requiresSecure();
+		return http.build();
 	}
 ----
 
@@ -2596,9 +2592,11 @@ Gradle users can achieve the same result by using the https://plugins.gradle.org
 [source,groovy,indent=0]
 ----
 	plugins {
-		id "com.gorylenko.gradle-git-properties" version "2.2.2"
+		id "com.gorylenko.gradle-git-properties" version "2.2.4"
 	}
 ----
+
+Both the Maven and Gradle plugins allow the properties that are included in `git.properties` to be configured.
 
 TIP: The commit time in `git.properties` is expected to match the following format: `yyyy-MM-dd'T'HH:mm:ssZ`.
 This is the default format for both plugins listed above.

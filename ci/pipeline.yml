@@ -4,7 +4,7 @@ anchors:
     username: ((github-username))
     password: ((github-password))
     branch: ((branch))
-  docker-resource-source: &docker-resource-source
+  registry-image-resource-source: &registry-image-resource-source
     username: ((docker-hub-username))
     password: ((docker-hub-password))
     tag: ((milestone))
@@ -18,7 +18,7 @@ anchors:
   github-task-params: &github-task-params
     GITHUB_REPO: spring-boot
     GITHUB_ORGANIZATION: spring-projects
-    GITHUB_PASSWORD: ((github-password))
+    GITHUB_PASSWORD: ((github-ci-release-token))
     GITHUB_USERNAME: ((github-username))
     MILESTONE: ((milestone))
   bintray-task-params: &bintray-task-params
@@ -33,6 +33,9 @@ anchors:
     ARTIFACTORY_SERVER: ((artifactory-server))
     ARTIFACTORY_USERNAME: ((artifactory-username))
     ARTIFACTORY_PASSWORD: ((artifactory-password))
+  sdkman-task-params: &sdkman-task-params
+    SDKMAN_CONSUMER_KEY: ((sdkman-consumer-key))
+    SDKMAN_CONSUMER_TOKEN: ((sdkman-consumer-token))
   build-project-task-params: &build-project-task-params
     privileged: true
     timeout: ((task-timeout))
@@ -141,20 +144,20 @@ resources:
   type: registry-image
   icon: docker
   source:
-    <<: *docker-resource-source
-    repository: ((docker-hub-organization))/((ci-image-name))
+    <<: *registry-image-resource-source
+    repository: ((docker-hub-organization))/spring-boot-ci
 - name: ci-image-jdk11
   type: registry-image
   icon: docker
   source:
-    <<: *docker-resource-source
-    repository: ((docker-hub-organization))/((ci-image-name))-jdk11
+    <<: *registry-image-resource-source
+    repository: ((docker-hub-organization))/spring-boot-ci-jdk11
 - name: ci-image-jdk15
   type: registry-image
   icon: docker
   source:
-    <<: *docker-resource-source
-    repository: ((docker-hub-organization))/((ci-image-name))-jdk15
+    <<: *registry-image-resource-source
+    repository: ((docker-hub-organization))/spring-boot-ci-jdk15
 - name: artifactory-repo
   type: artifactory-resource
   icon: package-variant
@@ -208,19 +211,39 @@ jobs:
   plan:
   - get: ci-images-git-repo
     trigger: true
+  - get: git-repo
+  - in_parallel:
+    - task: build-ci-image
+      privileged: true
+      file: git-repo/ci/tasks/build-ci-image.yml
+      output_mapping:
+        image: ci-image
+      vars:
+        ci-image-name: ci-image
+    - task: build-ci-image-jdk11
+      privileged: true
+      file: git-repo/ci/tasks/build-ci-image.yml
+      output_mapping:
+        image: ci-image-jdk11
+      vars:
+        ci-image-name: ci-image-jdk11
+    - task: build-ci-image-jdk15
+      privileged: true
+      file: git-repo/ci/tasks/build-ci-image.yml
+      output_mapping:
+        image: ci-image-jdk15
+      vars:
+        ci-image-name: ci-image-jdk15
   - in_parallel:
     - put: ci-image
       params:
-        build: ci-images-git-repo/ci/images
-        dockerfile: ci-images-git-repo/ci/images/ci-image/Dockerfile
+        image: ci-image/image.tar
     - put: ci-image-jdk11
       params:
-        build: ci-images-git-repo/ci/images
-        dockerfile: ci-images-git-repo/ci/images/ci-image-jdk11/Dockerfile
+        image: ci-image-jdk11/image.tar
     - put: ci-image-jdk15
       params:
-        build: ci-images-git-repo/ci/images
-        dockerfile: ci-images-git-repo/ci/images/ci-image-jdk15/Dockerfile
+        image: ci-image-jdk15/image.tar
 - name: detect-jdk-updates
   plan:
   - get: git-repo
@@ -573,11 +596,29 @@ jobs:
       name: generated-changelog/tag
       tag: generated-changelog/tag
       body: generated-changelog/changelog.md
+- name: publish-to-sdkman
+  serial: true
+  plan:
+    - get: ci-image
+    - get: git-repo
+    - get: artifactory-repo
+      passed: [sync-to-maven-central]
+      params:
+        download_artifacts: false
+        save_build_info: true
+    - task: publish-to-sdkman
+      image: ci-image
+      file: git-repo/ci/tasks/publish-to-sdkman.yml
+      params:
+        <<: *sdkman-task-params
+        RELEASE_TYPE: RELEASE
+        BRANCH: ((branch))
+        LATEST_GA: false
 groups:
 - name: "builds"
   jobs: ["build", "jdk11-build", "jdk15-build", "windows-build"]
 - name: "releases"
-  jobs: ["stage-milestone", "stage-rc", "stage-release", "promote-milestone", "promote-rc", "promote-release", "sync-to-maven-central"]
+  jobs: ["stage-milestone", "stage-rc", "stage-release", "promote-milestone", "promote-rc", "promote-release", "sync-to-maven-central", "publish-to-sdkman"]
 - name: "ci-images"
   jobs: ["build-ci-images", "detect-docker-updates", "detect-jdk-updates", "detect-ubuntu-image-updates"]
 - name: "pull-requests"

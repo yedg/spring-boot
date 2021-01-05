@@ -145,8 +145,14 @@ import org.springframework.web.util.pattern.PathPatternParser;
 		ValidationAutoConfiguration.class })
 public class WebMvcAutoConfiguration {
 
+	/**
+	 * The default Spring MVC view prefix.
+	 */
 	public static final String DEFAULT_PREFIX = "";
 
+	/**
+	 * The default Spring MVC view suffix.
+	 */
 	public static final String DEFAULT_SUFFIX = "";
 
 	private static final String[] SERVLET_LOCATIONS = { "/" };
@@ -441,7 +447,7 @@ public class WebMvcAutoConfiguration {
 
 		@Override
 		@Bean
-		@ConditionalOnMissingBean
+		@ConditionalOnMissingBean(name = DispatcherServlet.LOCALE_RESOLVER_BEAN_NAME)
 		@SuppressWarnings("deprecation")
 		public LocaleResolver localeResolver() {
 			if (this.webProperties.getLocaleResolver() == WebProperties.LocaleResolver.FIXED) {
